@@ -1,0 +1,86 @@
+/* ------------------------------------------------------------------
+   Baracca Configurateur — feuille de style autonome (aucune dépendance)
+------------------------------------------------------------------ */
+:root {
+  --bg: #fafaf9;
+  --card: #ffffff;
+  --border: #e7e5e4;
+  --text: #292524;
+  --muted: #78716c;
+  --accent: #b45309;
+  --accent-soft: #fef3c7;
+  --ok: #059669;
+  --err: #dc2626;
+  --radius: 10px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+.app { max-width: 1150px; margin: 0 auto; padding: 24px 20px 48px; }
+
+header.top { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+header.top h1 { font-size: 1.45rem; margin: 0; }
+header.top p { margin: 4px 0 0; color: var(--muted); font-size: 0.85rem; }
+
+.badge { display: inline-block; padding: 5px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; color: #fff; background: var(--ok); }
+.badge.error { background: var(--err); }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.card + .card, .grid2 { margin-top: 20px; }
+.card-title { font-weight: 600; font-size: 0.95rem; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.card-body { padding: 18px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* tabs */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+.tab-btn { padding: 8px 16px; border: 1px solid var(--border); background: #fff; border-radius: 8px; cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+.tab-btn.active { background: var(--text); color: #fff; border-color: var(--text); }
+
+/* formulaires */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+.field input[type="text"], .field input[type="number"], .field select {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: #fff;
+}
+.field input:focus, .field select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.fields-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* boutons */
+.btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: #fff; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text); }
+.btn:hover { background: #f5f5f4; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: #92400e; }
+.btn.ghost { border-color: transparent; color: var(--muted); }
+.btn.small { padding: 5px 10px; font-size: 0.78rem; }
+
+/* indicateurs */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
+.metric { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: #fff; }
+.metric .k { font-size: 0.72rem; color: var(--muted); }
+.metric .v { font-size: 1.05rem; font-weight: 700; margin-top: 2px; }
+
+/* murs / ouvertures */
+.face-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.checkline { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; margin-bottom: 6px; }
+.ouverture { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; background: #fff; }
+.ouverture-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.chip { font-size: 0.72rem; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; color: var(--muted); }
+.field-error { color: var(--err); font-size: 0.75rem; margin-top: 6px; }
+hr.sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+/* export */
+.export-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.export-toolbar p { margin: 0; font-size: 0.78rem; color: var(--muted); max-width: 520px; }
+pre.json {
+  background: #1c1917; color: #fafaf9; font-size: 11.5px; line-height: 1.5;
+  border-radius: 8px; padding: 16px; overflow: auto; max-height: 420px; margin: 0;
+}
+svg .face-label { font-size: 10px; font-weight: 500; }
+footer.foot { margin-top: 24px; font-size: 0.72rem; color: #a8a29e; text-align: center; }

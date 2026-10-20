@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "cible": "Archicad JSON API + Tapir",
+  "module": {
+    "nom": "Baracca_Module_01",
+    "dimensions": {
+      "longueur": 6.2,
+      "largeur": 3.1,
+      "hauteur": 2.8
+    },
+    "plancher": "Dalle CLT + chape",
+    "toiture": {
+      "type": "Deux pentes",
+      "pente": 25,
+      "pignon": true,
+      "hauteurFaitage": 0.72,
+      "surface": 10.6
+    },
+    "murs": {
+      "nord": {
+        "actif": true,
+        "type": "Mur CLT 140 mm",
+        "epaisseur": 0.14,
+        "materiau": "CLT",
+        "longueur": 6.2,
+        "hauteur": 2.8,
+        "facade": "bardage_bois",
+        "ouvertures": [
+          {
+            "id": "Baracca_Module_01_OUV_NORD_1",
+            "type": "baie",
+            "largeur": 1,
+            "hauteur": 2.1,
+            "position": 1
+          }
+        ]
+      },
+      "est": {
+        "actif": true,
+        "type": "Mur CLT 140 mm",
+        "epaisseur": 0.14,
+        "materiau": "CLT",
+        "longueur": 3.1,
+        "hauteur": 2.8,
+        "facade": "bardage_bois",
+        "ouvertures": [
+          {
+            "id": "Baracca_Module_01_OUV_EST_1",
+            "type": "baie",
+            "largeur": 1,
+            "hauteur": 2.1,
+            "position": 1.5
+          }
+        ]
+      },
+      "sud": {
+        "actif": true,
+        "type": "Mur CLT 140 mm",
+        "epaisseur": 0.14,
+        "materiau": "CLT",
+        "longueur": 6.2,
+        "hauteur": 2.8,
+        "facade": "bardage_bois",
+        "ouvertures": [
+          {
+            "id": "Baracca_Module_01_OUV_SUD_1",
+            "type": "baie",
+            "largeur": 1.2,
+            "hauteur": 2.15,
+            "position": 1.5
+          }
+        ]
+      },
+      "ouest": {
+        "actif": true,
+        "type": "Mur CLT 140 mm",
+        "epaisseur": 0.14,
+        "materiau": "CLT",
+        "longueur": 3.1,
+        "hauteur": 2.8,
+        "facade": "bardage_bois",
+        "ouvertures": [
+          {
+            "id": "Baracca_Module_01_OUV_OUEST_1",
+            "type": "porte",
+            "largeur": 0.9,
+            "hauteur": 2.05,
+            "position": 0.5
+          }
+        ]
+      }
+    }
+  },
+  "metriques": {
+    "surfacePlancher": 19.22,
+    "surfaceToiture": 10.6,
+    "surfaceMenuiserie": 8.63,
+    "volumeBrut": 53.82
+  }
+}
