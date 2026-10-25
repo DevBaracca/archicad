@@ -1,0 +1,73 @@
+<?php
+// Configuration partagée du <head> — chaque page peut définir $pageTitle et $pageDescription avant l'include
+$currentPage = basename($_SERVER['PHP_SELF']);
+if (!isset($pageTitle)) $pageTitle = 'Baracca | Configurateur de modules pour Archicad';
+if (!isset($pageDescription)) $pageDescription = 'Baracca - Configurateur de modules d\'habitation en ossature bois : concevez votre module en ligne et exportez les données vers Archicad.';
+// CTA du header selon la page courante
+if ($currentPage === 'configurateur.php') {
+  $ctaHref = 'index.php';
+  $ctaLabel = 'Retour à l\'accueil';
+} else {
+  $ctaHref = 'configurateur.php';
+  $ctaLabel = 'Lancer le configurateur';
+}
+?>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="<?php echo $pageDescription; ?>">
+  <meta name="keywords" content="Baracca, configurateur, Archicad, module habitation, ossature bois, matériaux biosourcés, export JSON, Tapir">
+  <title><?php echo $pageTitle; ?></title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geologica:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="assets/images/favicon.png">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="assets/css/style.css">
+
+  <!-- Open Graph / Social -->
+  <meta property="og:title" content="<?php echo $pageTitle; ?>">
+  <meta property="og:description" content="<?php echo $pageDescription; ?>">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/images/logo-seul.png">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="container">
+      <nav class="nav">
+        <a href="index.php" class="logo">
+          <img src="assets/images/logo-baracca-bandeau.png" alt="Baracca - Configurateur de modules" class="header-logo">
+        </a>
+        <ul class="nav-links">
+          <li><a href="index.php"<?php echo ($currentPage === 'index.php') ? ' class="active"' : ''; ?>>Accueil</a></li>
+          <li><a href="configurateur.php"<?php echo ($currentPage === 'configurateur.php') ? ' class="active"' : ''; ?>>Configurateur</a></li>
+        </ul>
+        <div class="nav-actions">
+          <a href="<?php echo $ctaHref; ?>" class="btn btn-primary nav-cta"><?php echo $ctaLabel; ?></a>
+          <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </nav>
+
+      <!-- Mobile Menu -->
+      <div class="mobile-menu hidden" id="mobile-menu">
+        <ul>
+          <li><a href="index.php">Accueil</a></li>
+          <li><a href="configurateur.php">Configurateur</a></li>
+        </ul>
+      </div>
+    </div>
+  </header>

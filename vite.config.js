@@ -3,7 +3,14 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  // Pour un hébergement dans un sous-dossier, ex. https://site.fr/configurateur/
-  // décommentez et ajustez :
-  // base: "/configurateur/",
+  // Racine Vite = src/ : le point d'entrée index.html vit dans src/ pour ne pas
+  // entrer en conflit avec index.php (page d'accueil du site PHP) à la racine.
+  root: "src",
+  // L'application est servie depuis le sous-dossier /configurateur/ du site PHP
+  // (intégrée par iframe dans configurateur.php)
+  base: "/configurateur/",
+  build: {
+    outDir: "../configurateur",
+    emptyOutDir: true,
+  },
 });

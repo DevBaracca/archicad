@@ -9,25 +9,61 @@ ou `baracca_import_hotlink.py` (modules .mod) côté Archicad.
 ```bash
 npm install
 npm run dev        # développement : http://localhost:5173
-npm run build      # production : génère le dossier dist/
+npm run build      # production : génère le dossier configurateur/
 ```
 
-## Déployer sur votre site PHP
+## Structure du site PHP
 
-1. `npm run build`
-2. Copiez le contenu de `dist/` dans un dossier de votre serveur,
-   par exemple `public/configurateur/`.
-   → Le configurateur est accessible sur `https://votre-site.fr/configurateur/`
-3. Si le dossier est servi sous un autre chemin, ajustez `base`
+Ce dossier est désormais un site PHP complet (même mise en page que `siteweb`
+et `siteinvest`), dans lequel l'application React est intégrée :
+
+```
+index.php                      Accueil (présentation du configurateur)
+configurateur.php              Page d'intégration de l'application (iframe)
+mentions-legales.php           Pages légales
+cgu.php
+politique-confidentialite.php
+send_newsletter.php            Inscription newsletter (footer)
+includes/head.html             En-tête + navigation (partagés)
+includes/footer.php            Pied de page (newsletter, réseaux sociaux, légal)
+assets/                        CSS, JS, images du site
+configurateur/                 Application React compilée (générée par le build)
+src/                           Source React de l'application (Vite, racine = src/)
+php/trace_module.php           Endpoint optionnel de traçage des configurations
+TEST/                          Exemple de JSON + script Python d'import Archicad
+```
+
+## Déployer
+
+1. `npm install` (si besoin)
+2. `npm run build` → génère le dossier `configurateur/`
+   (l'application est servie sous `/configurateur/`, intégrée par iframe
+   dans `configurateur.php`)
+3. Copiez sur votre hébergement PHP **uniquement les fichiers d'exécution** :
+   - pages `.php` (`index`, `configurateur`, `mentions-legales`, `cgu`,
+     `politique-confidentialite`, `send_newsletter`)
+   - `includes/` (`head.html`, `footer.php`)
+   - `assets/` (CSS, JS, images)
+   - `configurateur/` (l'application compilée — c'est elle qui est servie)
+   - `TEST/` (le JSON exemple est lié depuis le pied de page)
+   - `php/trace_module.php` (si vous activez le traçage)
+
+   **Inutile sur le serveur** (build local uniquement) : `node_modules/`
+   (centaines de Mo, dépendances de build), `src/` (source React),
+   `package.json` et `vite.config.js` (utilisés seulement par Vite
+   au moment du build). Le dossier `configurateur/` contient déjà
+   l'application compilée, autonome (HTML + CSS + JS).
+4. Si le site est servi sous un sous-dossier, ajustez `base`
    dans `vite.config.js` avant de builder.
-4. Intégrez-le à une page PHP (voir `php/configurateur.php`).
+5. Renommez `htaccess.txt` en `.htaccess` dans `configurateur/`
+   (politique iframe) — voir section « Sécurité iframe » ci-dessous.
 
 ## Traçage des configurations (optionnel)
 
 Dans `src/App.jsx`, renseignez :
 
 ```js
-const TRACE_URL = "/api/trace_module.php";
+const TRACE_URL = "/php/trace_module.php";
 ```
 
 À chaque téléchargement du JSON, une copie sera envoyée en POST à cette
@@ -50,7 +86,7 @@ clé `module` et ses sous-clés `dimensions`, `plancher`, `toiture`,
 
 ## Sécurité iframe (recommandé)
 
-Sur le serveur qui héberge `dist/`, autorisez l'affichage en iframe
+Sur le serveur qui héberge `configurateur/`, autorisez l'affichage en iframe
 depuis votre seul domaine, via nginx :
 
 ```
@@ -61,4 +97,14 @@ ou Apache (.htaccess) :
 
 ```
 Header set Content-Security-Policy "frame-ancestors https://votre-site.fr"
+```
+
+**Important** : `frame-ancestors` compare l'**origine** (schéma + hôte) de la page
+qui intègre l'iframe. La liste doit contenir exactement l'adresse du site déployé —
+s'y déployez sur un sous-domaine, celui-ci doit figurer dans la liste, sinon le
+navigateur bloque l'iframe. Ici le site est servi sur `https://archicad.baracca.fr`,
+d'où le `htaccess.txt` :
+
+```
+Header always set Content-Security-Policy "frame-ancestors https://archicad.baracca.fr https://baracca.fr https://www.baracca.fr"
 ```
