@@ -14,8 +14,8 @@ npm run build      # production : génère le dossier configurateur/
 
 ## Structure du site PHP
 
-Ce dossier est désormais un site PHP complet (même mise en page que `siteweb`
-et `siteinvest`), dans lequel l'application React est intégrée :
+Ce dossier est désormais un site PHP complet (même mise en page que `dev.baracca.fr`
+et `invest.baracca.fr`), dans lequel l'application React est intégrée :
 
 ```
 index.php                      Accueil (présentation du configurateur)
