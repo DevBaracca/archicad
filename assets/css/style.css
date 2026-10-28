@@ -585,6 +585,26 @@ img, picture, video, canvas, svg {
   color: var(--primary);
 }
 
+/* Bouton d'accès au back-office (fixé à droite du header) */
+.nav-admin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--gray-border);
+  background-color: var(--white);
+  color: var(--gray-dark);
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.nav-admin:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
 .mobile-menu {
   position: absolute;
   top: 100%;
@@ -747,11 +767,11 @@ img, picture, video, canvas, svg {
 
 .hero-image {
   position: absolute;
-  right: -10%;
+  right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  width: 60%;
-  height: 120%;
+  width: 30%;
+  height: 60%;
   background-size: cover;
   background-position: center;
   opacity: 0.8;
@@ -1616,7 +1636,7 @@ img, picture, video, canvas, svg {
     top: auto;
     transform: none;
     width: 100%;
-    height: 300px;
+    height: 150px;
     opacity: 0.6;
     margin-top: var(--spacing-xl);
   }
@@ -2269,6 +2289,9 @@ img, picture, video, canvas, svg {
 
 .form-group input[type="text"],
 .form-group input[type="email"],
+.form-group input[type="tel"],
+.form-group input[type="password"],
+.form-group input[type="number"],
 .form-group textarea {
   padding: var(--spacing-md);
   border: 1px solid var(--gray-border);
@@ -2672,5 +2695,144 @@ img, picture, video, canvas, svg {
 @media (max-width: 1024px) {
   .nav-actions .nav-cta {
     display: none;
+  }
+}
+
+/* ============================================
+   Espace client (inscription, connexion, compte)
+   ============================================ */
+
+.auth-card {
+  max-width: 720px;
+  margin: 0 auto;
+  background-color: var(--white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--box-shadow-lg);
+  padding: var(--spacing-2xl);
+}
+
+.auth-card-narrow {
+  max-width: 480px;
+}
+
+.auth-card-wide {
+  max-width: 860px;
+}
+
+.auth-card-center {
+  text-align: center;
+}
+
+.auth-card h1,
+.auth-card h2 {
+  margin-top: var(--spacing-sm);
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-lg);
+}
+
+/* Trait fin de séparation entre les blocs du formulaire */
+.auth-separator {
+  border: none;
+  border-top: 1px solid var(--gray-border);
+  margin: var(--spacing-lg) 0 0;
+}
+
+.auth-actions {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-lg);
+}
+
+.auth-actions-center {
+  justify-content: center;
+}
+
+.auth-links {
+  margin-top: var(--spacing-lg);
+  font-size: var(--font-size-small);
+  color: var(--gray);
+}
+
+.auth-links a {
+  color: var(--primary);
+}
+
+.form-hint {
+  font-size: var(--font-size-xs);
+  color: var(--gray);
+}
+
+/* Bouton compact (tableaux, actions de ligne) */
+.btn-small {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-small);
+}
+
+/* Messages d'alerte (formulaires compte client) */
+.alert {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--border-radius);
+  margin: var(--spacing-lg) 0;
+  font-size: var(--font-size-small);
+}
+
+.alert-error {
+  background-color: #fbe9e5;
+  color: #b3402a;
+}
+
+.alert-success {
+  background-color: #e8f0e9;
+  color: #2f5d33;
+}
+
+.alert-list {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+}
+
+/* Table de profil et de configurations (page Mon compte) */
+.profile-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--spacing-xl);
+}
+
+.profile-table th,
+.profile-table td {
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--gray-border);
+  vertical-align: middle;
+}
+
+.profile-table th {
+  color: var(--gray);
+  font-size: var(--font-size-small);
+  font-weight: 600;
+}
+
+.profile-table tbody th {
+  width: 220px;
+}
+
+.configs-table thead th {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+@media (max-width: 768px) {
+  .auth-card {
+    padding: var(--spacing-xl);
+  }
+
+  .profile-table tbody th {
+    width: 130px;
   }
 }

@@ -19,19 +19,71 @@ et `invest.baracca.fr`), dans lequel l'application React est intégrée :
 
 ```
 index.php                      Accueil (présentation du configurateur)
-configurateur.php              Page d'intégration de l'application (iframe)
+configurateur.php              Page d'intégration de l'application (iframe) — réservée aux clients connectés
+inscription.php                Création d'un compte client (accès au configurateur)
+connexion.php                  Connexion client (email = identifiant)
+deconnexion.php                Déconnexion client
+compte.php                     Espace client : profil + configurations enregistrées
 mentions-legales.php           Pages légales
 cgu.php
 politique-confidentialite.php
 send_newsletter.php            Inscription newsletter (footer)
+config.php                     Configuration générale (identifiants admin, chemins)
+data/                          Stockage JSON (comptes, configurations, soumissions) — protégé par .htaccess
 includes/head.html             En-tête + navigation (partagés)
 includes/footer.php            Pied de page (newsletter, réseaux sociaux, légal)
-assets/                        CSS, JS, images du site
+includes/auth.php              Session client + limitation de débit des connexions
+includes/users.php             Comptes clients (création, recherche, mot de passe)
+includes/configurations.php    Configurations enregistrées par les clients
+includes/soumissions.php       Configurations soumises via « Soumettre »
+includes/admin-auth.php        Session administrateur + CSRF
+includes/admin-head.php        En-tête du back-office
+includes/admin-footer.php      Pied de page du back-office
+admin/                         Back-office (tableau de bord, utilisateurs, soumissions)
+assets/                        CSS, JS, images du site (dont admin.css pour le back-office)
 configurateur/                 Application React compilée (générée par le build)
 src/                           Source React de l'application (Vite, racine = src/)
+php/api_session.php            API : état de la session client (pour l'application React)
+php/api_configurations.php     API : enregistrer/lister/charger/supprimer une configuration
+php/soumettre.php              API : bouton « Soumettre » (envoi de la configuration à Baracca)
 php/trace_module.php           Endpoint optionnel de traçage des configurations
 TEST/                          Exemple de JSON + script Python d'import Archicad
 ```
+
+## Comptes clients, configurations et back-office
+
+L'accès au configurateur nécessite un **compte client**, créé en ligne depuis
+`inscription.php` : nom, prénom, adresse (numéro de rue, rue, code postal, ville),
+référence cadastrale (facultative), email et mot de passe. L'email sert
+d'identifiant de connexion (`connexion.php`).
+
+Depuis l'onglet « Export JSON » du configurateur, un client connecté peut :
+
+- **enregistrer** sa configuration pour la reprendre ultérieurement (bouton
+  « Enregistrer cette configuration », liste « Mes configurations » avec
+  Charger / Supprimer) — les configurations sont aussi listées sur `compte.php`,
+  qui permet de les rouvrir directement dans le configurateur (`?config=<id>`) ;
+- **soumettre** son dossier (bouton « Soumettre ») : la configuration est
+  enregistrée dans `data/soumissions/` et l'architecte est averti par e-mail
+  (`dev@baracca.fr`) ; il retrouve le fichier JSON correspondant dans le
+  back-office (`admin/soumissions.php`).
+
+Le **back-office** (`/admin/`) permet de gérer les comptes clients
+(réinitialiser un mot de passe, supprimer un compte et ses configurations) et
+de consulter les soumissions. Identifiants par défaut (à changer dans
+`config.php` après la première connexion) : `admin` / `Baracca2025!`.
+
+Stockage : fichiers JSON dans `data/` (même modèle que les sites invest et
+blog), sans base de données. Le dossier est interdit au web par `data/.htaccess`
+et son contenu n'est pas versionné (voir `.gitignore`).
+
+Pour définir un nouveau mot de passe administrateur, générez son hash bcrypt :
+
+```bash
+php -r "echo password_hash('votre_mot_de_passe', PASSWORD_DEFAULT);"
+```
+
+puis remplacez `ARCHICAD_ADMIN_PASSWORD_HASH` dans `config.php`.
 
 ## Déployer
 
@@ -40,13 +92,21 @@ TEST/                          Exemple de JSON + script Python d'import Archicad
    (l'application est servie sous `/configurateur/`, intégrée par iframe
    dans `configurateur.php`)
 3. Copiez sur votre hébergement PHP **uniquement les fichiers d'exécution** :
-   - pages `.php` (`index`, `configurateur`, `mentions-legales`, `cgu`,
+   - pages `.php` (`index`, `configurateur`, `inscription`, `connexion`,
+     `deconnexion`, `compte`, `mentions-legales`, `cgu`,
      `politique-confidentialite`, `send_newsletter`)
-   - `includes/` (`head.html`, `footer.php`)
+   - `config.php` (pensez à y changer le mot de passe administrateur)
+   - `includes/` (`head.html`, `footer.php`, `auth.php`, `users.php`,
+     `configurations.php`, `soumissions.php`, `admin-auth.php`,
+     `admin-head.php`, `admin-footer.php`)
+   - `admin/` (back-office)
    - `assets/` (CSS, JS, images)
    - `configurateur/` (l'application compilée — c'est elle qui est servie)
+   - `data/.htaccess` (le dossier `data/` et son contenu sont créés
+     automatiquement à la première utilisation)
+   - `php/` (`api_session.php`, `api_configurations.php`, `soumettre.php`,
+     et `trace_module.php` si vous activez le traçage)
    - `TEST/` (le JSON exemple est lié depuis le pied de page)
-   - `php/trace_module.php` (si vous activez le traçage)
 
    **Inutile sur le serveur** (build local uniquement) : `node_modules/`
    (centaines de Mo, dépendances de build), `src/` (source React),

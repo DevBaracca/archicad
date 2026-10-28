@@ -1,4 +1,25 @@
 <?php
+/**
+ * Baracca - Site archicad.baracca.fr
+ * Page du configurateur — réservée aux clients connectés (compte client requis)
+ */
+require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/configurations.php';
+
+// Connecté = session active ET compte toujours existant
+$user = archicad_current_user();
+$isLoggedIn = $user !== null;
+
+// Chargement d'une configuration enregistrée (?config=<id>) — réservée au propriétaire
+$configId = '';
+if ($isLoggedIn && isset($_GET['config'])) {
+    $candidate = (string) $_GET['config'];
+    $config = archicad_find_configuration($candidate);
+    if ($config !== null && ($config['userId'] ?? '') === (string) $user['id']) {
+        $configId = $candidate;
+    }
+}
+
 $pageTitle = 'Configurateur - Baracca';
 $pageDescription = 'Configurateur de modules Baracca : définissez dimensions, toiture, murs et ouvertures, puis exportez le fichier JSON pour Archicad.';
 include 'includes/head.html';
@@ -31,19 +52,44 @@ include 'includes/head.html';
         </p>
       </div>
 
-      <div class="fade-in" style="margin-top: var(--spacing-xl);">
-        <iframe
-          src="/configurateur/"
-          width="100%" height="950"
-          style="border:0; border-radius:12px; box-shadow: var(--box-shadow-xl);"
-          title="Configurateur de modules Baracca">
-        </iframe>
-      </div>
+      <?php if ($isLoggedIn): ?>
+        <p class="fade-in" style="margin-top: var(--spacing-xl); font-size: var(--font-size-small); color: var(--gray);">
+          Connecté en tant que <strong><?= htmlspecialchars(trim(($user['prenom'] ?? '') . ' ' . ($user['nom'] ?? ''))) ?></strong>
+          — <a href="compte.php">Mon compte</a> — <a href="deconnexion.php">Se déconnecter</a>
+        </p>
 
-      <p class="fade-in" style="margin-top: var(--spacing-md); font-size: var(--font-size-small); color: var(--gray);">
-        Le configurateur s'exécute entièrement dans votre navigateur : aucune donnée n'est transmise
-        à Baracca, à l'exception de l'adresse e-mail si vous vous inscrivez à la newsletter en pied de page.
-      </p>
+        <div class="fade-in" style="margin-top: var(--spacing-md);">
+          <iframe
+            src="/configurateur/<?= $configId !== '' ? '?config=' . urlencode($configId) : '' ?>"
+            width="100%" height="950"
+            style="border:0; border-radius:12px; box-shadow: var(--box-shadow-xl);"
+            title="Configurateur de modules Baracca">
+          </iframe>
+        </div>
+
+        <p class="fade-in" style="margin-top: var(--spacing-md); font-size: var(--font-size-small); color: var(--gray);">
+          Le configurateur s'exécute dans votre navigateur. Avec votre compte client, vous pouvez
+          enregistrer vos configurations pour les reprendre plus tard (onglet « Export JSON ») et les
+          soumettre à Baracca via le bouton « Soumettre ». À défaut, aucune donnée n'est transmise,
+          à l'exception de l'adresse e-mail si vous vous inscrivez à la newsletter en pied de page.
+        </p>
+      <?php else: ?>
+        <div class="fade-in" style="margin-top: var(--spacing-xl);">
+          <div class="auth-card auth-card-narrow auth-card-center">
+            <span class="section-tag">Espace client</span>
+            <h2>Compte client requis</h2>
+            <p>
+              L'accès au configurateur est réservé aux clients disposant d'un compte.
+              Créez votre compte (gratuit) ou connectez-vous avec votre email et votre mot de passe :
+              vous pourrez alors enregistrer vos configurations et les soumettre à Baracca.
+            </p>
+            <div class="auth-actions auth-actions-center">
+              <a href="inscription.php" class="btn btn-cta">Créer un compte</a>
+              <a href="connexion.php" class="btn btn-secondary">Se connecter</a>
+            </div>
+          </div>
+        </div>
+      <?php endif; ?>
     </div>
   </section>
 

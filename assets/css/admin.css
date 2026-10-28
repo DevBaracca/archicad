@@ -1,0 +1,179 @@
+/* ============================================================
+   Baracca - Back-office (administration archicad.baracca.fr)
+   Contenu du back-office. La mise en page header/footer reprend
+   celle du site (style.css, design commun Baracca).
+   ============================================================ */
+
+.admin-body {
+  background-color: var(--gray-light);
+  color: var(--black);
+  font-family: var(--font-family);
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ----- Contenu ----- */
+.admin-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--spacing-2xl) var(--spacing-xl);
+}
+
+.admin-card {
+  background-color: var(--white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--box-shadow);
+  padding: var(--spacing-xl);
+  margin-bottom: var(--spacing-xl);
+}
+
+.admin-card h1 {
+  margin-top: 0;
+  font-size: 1.5rem;
+}
+
+.admin-card h2 {
+  font-size: 1.1rem;
+  margin-top: 0;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.admin-stat {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+/* ----- Formulaires ----- */
+.admin-form-row {
+  margin-bottom: var(--spacing-lg);
+}
+
+.admin-form-row label {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  font-weight: 600;
+}
+
+.admin-form-row input,
+.admin-form-row select,
+.admin-form-row textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--gray-border);
+  border-radius: var(--border-radius);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.admin-form-inline {
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.admin-form-inline > div {
+  flex: 1;
+  min-width: 180px;
+}
+
+.admin-hint {
+  color: var(--gray);
+  font-size: var(--font-size-small);
+}
+
+/* ----- Messages ----- */
+.admin-message {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--border-radius);
+  margin-bottom: var(--spacing-lg);
+}
+
+.admin-message-success {
+  background-color: #e8f0e9;
+  color: #2f5d33;
+}
+
+.admin-message-error {
+  background-color: #fbe9e5;
+  color: #b3402a;
+}
+
+/* ----- Tableaux ----- */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--gray-border);
+  vertical-align: middle;
+}
+
+.admin-table th {
+  color: var(--gray);
+  font-size: var(--font-size-small);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.admin-table td form {
+  display: inline;
+}
+
+.admin-table .admin-sub {
+  color: var(--gray);
+  font-size: var(--font-size-small);
+}
+
+/* ----- Boutons ----- */
+.admin-actions {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn-danger {
+  background-color: #b3402a;
+  color: var(--white);
+  border: none;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font: inherit;
+  transition: var(--transition);
+}
+
+.btn-danger:hover {
+  background-color: #93331f;
+}
+
+/* ----- Page de connexion ----- */
+.admin-login {
+  max-width: 420px;
+  margin: 10vh auto;
+}
+
+/* ----- Responsive ----- */
+@media (max-width: 768px) {
+  .admin-main {
+    padding: var(--spacing-xl) var(--spacing-md);
+  }
+
+  .admin-card {
+    padding: var(--spacing-lg);
+  }
+}

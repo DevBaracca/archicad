@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 /* =================================================================
    Catalogue Baracca — à synchroniser avec votre catalogue produits
@@ -53,6 +53,12 @@ const DEFAULTS = {
 
 /* URL de l'endpoint PHP de traçage (optionnel — laisser vide pour désactiver) */
 const TRACE_URL = ""; // ex. "/api/trace_module.php"
+
+/* Endpoints du site (même origine : l'application est servie par le site PHP
+   sous /configurateur/ et intégrée par iframe dans configurateur.php) */
+const API_SESSION = "/php/api_session.php";
+const API_CONFIGS = "/php/api_configurations.php";
+const API_SOUMETTRE = "/php/soumettre.php";
 
 /* =================================================================
    Calculs
@@ -132,6 +138,18 @@ function buildExport(d) {
       volumeBrut: +(surfacePlancher(d) * d.hauteur).toFixed(2),
     },
   };
+}
+
+/* Fusion d'une configuration enregistrée avec les valeurs par défaut
+   (tolère l'évolution du schéma entre deux versions) */
+function mergeConfig(saved) {
+  const base = JSON.parse(JSON.stringify(DEFAULTS));
+  const out = { ...base, ...saved };
+  out.murs = {};
+  FACES.forEach((f) => {
+    out.murs[f.key] = { ...base.murs[f.key], ...((saved.murs || {})[f.key] || {}) };
+  });
+  return out;
 }
 
 /* =================================================================
@@ -305,6 +323,13 @@ export default function App() {
   const [tab, setTab] = useState("geometrie");
   const [flash, setFlash] = useState("");
 
+  /* ----- Espace client : session, configurations enregistrées ----- */
+  const [session, setSession] = useState(null); // null = chargement en cours
+  const [configs, setConfigs] = useState([]);
+  const [saveName, setSaveName] = useState("");
+  const [configMsg, setConfigMsg] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
   const set = (patch) => setD((prev) => ({ ...prev, ...patch }));
   const setFace = (key, patch) =>
     setD((prev) => ({ ...prev, murs: { ...prev.murs, [key]: { ...prev.murs[key], ...patch } } }));
@@ -326,6 +351,114 @@ export default function App() {
   );
 
   const notifier = (msg) => { setFlash(msg); setTimeout(() => setFlash(""), 2000); };
+
+  /* ----- Espace client : session, configurations enregistrées ----- */
+  const postConfigs = async (payload) => {
+    const r = await fetch(API_CONFIGS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return r.json();
+  };
+
+  const refreshConfigs = async () => {
+    try {
+      const l = await postConfigs({ action: "list" });
+      if (l.ok) setConfigs(l.configurations);
+    } catch { /* silencieux */ }
+  };
+
+  // Au chargement : état de la session, liste des configurations,
+  // et chargement éventuel d'une configuration demandée (?config=<id>)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(API_SESSION);
+        const s = await r.json();
+        if (cancelled) return;
+        setSession(s);
+        if (!s.loggedIn) return;
+        const l = await postConfigs({ action: "list" });
+        if (cancelled) return;
+        if (l.ok) setConfigs(l.configurations);
+        const wanted = new URLSearchParams(window.location.search).get("config");
+        if (wanted) {
+          const g = await postConfigs({ action: "get", id: wanted });
+          if (!cancelled && g.ok && g.configuration) {
+            setD(mergeConfig(g.configuration.config));
+            notifier("Configuration chargée ✓");
+          }
+        }
+      } catch {
+        if (!cancelled) setSession({ loggedIn: false, user: null });
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const enregistrer = async () => {
+    const nom = (saveName || d.nom || "module_baracca").trim();
+    try {
+      const g = await postConfigs({ action: "save", nom, config: d, json });
+      if (g.ok) {
+        setConfigMsg("Configuration enregistrée ✓");
+        setSaveName("");
+        await refreshConfigs();
+      } else {
+        setConfigMsg(g.error || "Erreur lors de l'enregistrement.");
+      }
+    } catch {
+      setConfigMsg("Erreur réseau lors de l'enregistrement.");
+    }
+    setTimeout(() => setConfigMsg(""), 2500);
+  };
+
+  const chargerConfig = async (id) => {
+    try {
+      const g = await postConfigs({ action: "get", id });
+      if (g.ok && g.configuration) {
+        setD(mergeConfig(g.configuration.config));
+        setTab("geometrie");
+        notifier("Configuration chargée ✓");
+      }
+    } catch { notifier("Chargement impossible"); }
+  };
+
+  const supprimerConfig = async (id) => {
+    try {
+      const g = await postConfigs({ action: "delete", id });
+      if (g.ok) {
+        await refreshConfigs();
+        notifier("Configuration supprimée ✓");
+      }
+    } catch { notifier("Suppression impossible"); }
+  };
+
+  // Bouton « Soumettre » : envoie la configuration à Baracca
+  const soumettre = async () => {
+    setSubmitting(true);
+    try {
+      const r = await fetch(API_SOUMETTRE, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: json,
+      });
+      const g = await r.json();
+      if (g.ok) {
+        notifier(g.mail === false
+          ? "Dossier enregistré, mais la notification e-mail a échoué"
+          : "Dossier soumis — l'architecte est averti ✓");
+      } else {
+        notifier(g.error || "Échec de la soumission");
+      }
+    } catch {
+      notifier("Échec de la soumission");
+    }
+    setSubmitting(false);
+  };
 
   const copier = async () => {
     try { await navigator.clipboard.writeText(json); notifier("JSON copié ✓"); }
@@ -542,11 +675,76 @@ export default function App() {
                   Ce fichier JSON est le format d'échange : le script Python côté Archicad
                   (API JSON officielle + Tapir) le lit et génère murs, toiture, plancher et ouvertures.
                 </p>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button className="btn small" onClick={copier}>Copier le JSON</button>
                   <button className="btn primary small" onClick={telecharger}>Télécharger module.json</button>
+                  <button
+                    className="btn primary small"
+                    onClick={soumettre}
+                    disabled={submitting || !session?.loggedIn}
+                    title={session?.loggedIn ? "Avertir l'architecte (dev@baracca.fr) que ce dossier est prêt à être examiné" : "Connectez-vous pour soumettre"}
+                  >
+                    {submitting ? "Envoi…" : "Soumettre"}
+                  </button>
                 </div>
               </div>
+              <p style={{ fontSize: 12, color: "#78716c", margin: "0 0 12px" }}>
+                « Soumettre » avertit l'architecte (dev@baracca.fr) que votre dossier est prêt à être
+                examiné : le fichier JSON est alors enregistré et récupérable dans le back-office
+                (compte client requis).
+              </p>
+
+              {session && session.loggedIn ? (
+                <div className="account-box">
+                  <div className="account-head">
+                    <strong>Mes configurations</strong>
+                    <span className="account-user">
+                      {session.user.prenom} {session.user.nom} — {session.user.email}
+                    </span>
+                  </div>
+                  <div className="save-row">
+                    <input
+                      type="text"
+                      placeholder={d.nom || "Nom de la configuration"}
+                      value={saveName}
+                      onChange={(e) => setSaveName(e.target.value)}
+                    />
+                    <button className="btn small" onClick={enregistrer}>Enregistrer cette configuration</button>
+                  </div>
+                  {configMsg && <div className="field-error" style={{ color: "#059669" }}>{configMsg}</div>}
+                  {configs.length > 0 ? (
+                    <ul className="config-list">
+                      {configs.map((c) => (
+                        <li key={c.id} className="config-row">
+                          <div>
+                            <strong>{c.nom}</strong>
+                            <span className="config-date">modifiée le {c.updated}</span>
+                          </div>
+                          <div className="config-actions">
+                            <button className="btn small" onClick={() => chargerConfig(c.id)}>Charger</button>
+                            <button className="btn ghost small" onClick={() => supprimerConfig(c.id)}>Supprimer</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="config-empty">Aucune configuration enregistrée pour le moment.</p>
+                  )}
+                  <p className="config-hint">
+                    Retrouvez aussi vos configurations sur <a href="/compte.php" target="_blank">votre espace client</a>.
+                  </p>
+                </div>
+              ) : session ? (
+                <div className="account-box">
+                  <strong>Enregistrement et soumission réservés aux comptes clients</strong>
+                  <p className="config-hint">
+                    <a href="/inscription.php" target="_blank">Créer un compte</a> ou{" "}
+                    <a href="/connexion.php" target="_blank">se connecter</a> pour enregistrer
+                    vos configurations et les soumettre à Baracca.
+                  </p>
+                </div>
+              ) : null}
+
               {flash && <div className="field-error" style={{ marginBottom: 8, color: "#059669" }}>{flash}</div>}
               <pre className="json">{json}</pre>
             </>

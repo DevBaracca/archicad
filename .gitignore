@@ -3,3 +3,9 @@ dist/
 configurateur/
 *.log
 .DS_Store
+
+# Données runtime du site (comptes clients, configurations enregistrées,
+# soumissions, limitation de débit) — créées automatiquement, jamais versionnées
+data/*
+!data/.htaccess
+php/modules-configures/
