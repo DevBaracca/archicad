@@ -27,6 +27,7 @@ $adminLoggedIn = archicad_admin_is_logged_in();
             <li><a href="index.php"<?= $adminPage === 'index' ? ' class="active"' : '' ?>>Tableau de bord</a></li>
             <li><a href="utilisateurs.php"<?= $adminPage === 'utilisateurs' ? ' class="active"' : '' ?>>Utilisateurs</a></li>
             <li><a href="soumissions.php"<?= $adminPage === 'soumissions' ? ' class="active"' : '' ?>>Soumissions</a></li>
+            <li><a href="configurateur.php"<?= $adminPage === 'configurateur' ? ' class="active"' : '' ?>>Configurateur</a></li>
           </ul>
         <?php else: ?>
           <ul class="nav-links">
@@ -62,6 +63,7 @@ $adminLoggedIn = archicad_admin_is_logged_in();
             <li><a href="index.php">Tableau de bord</a></li>
             <li><a href="utilisateurs.php">Utilisateurs</a></li>
             <li><a href="soumissions.php">Soumissions</a></li>
+            <li><a href="configurateur.php">Configurateur</a></li>
             <li><a href="logout.php">Se déconnecter</a></li>
           <?php else: ?>
             <li><a href="../index.php">Accueil</a></li>

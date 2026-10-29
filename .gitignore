@@ -5,7 +5,12 @@ configurateur/
 .DS_Store
 
 # Données runtime du site (comptes clients, configurations enregistrées,
-# soumissions, limitation de débit) — créées automatiquement, jamais versionnées
+# soumissions, limitation de débit, catalogues du configurateur) — créées
+# automatiquement, jamais versionnées
 data/*
 !data/.htaccess
 php/modules-configures/
+
+# Visuels du catalogue envoyés depuis le back-office — jamais versionnés
+assets/images/catalogue/*
+!assets/images/catalogue/.gitkeep

@@ -66,8 +66,25 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .metric .k { font-size: 0.72rem; color: var(--muted); }
 .metric .v { font-size: 1.05rem; font-weight: 700; margin-top: 2px; }
 
+/* onglet module : fiche en lecture seule + tarif */
+.section-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 4px 0 10px; }
+.spec { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 16px; margin-bottom: 4px; }
+.spec-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #fff; }
+.spec-k { font-size: 0.78rem; color: var(--muted); }
+.spec-v { font-size: 0.9rem; font-weight: 600; text-align: right; }
+.metric.tarif { border-color: var(--accent); background: var(--accent-soft); }
+.metric.tarif .v { color: #92400e; }
+
 /* murs / ouvertures */
 .face-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.menuiserie-row { display: flex; gap: 12px; align-items: flex-start; }
+.menuiserie-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); flex-shrink: 0; background: #fff; }
+
+/* position des ouvertures : stepper en cm (pas de saisie libre) */
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper-value { min-width: 96px; text-align: center; font-weight: 600; font-size: 0.95rem; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: #fff; }
+.stepper .btn { min-width: 42px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .checkline { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; margin-bottom: 6px; }
 .ouverture { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; background: #fff; }
 .ouverture-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }

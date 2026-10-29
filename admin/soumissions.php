@@ -63,11 +63,15 @@ include __DIR__ . '/../includes/admin-head.php';
                 </td>
                 <td>
                   <div class="admin-actions">
-                    <a href="soumission.php?fichier=<?= urlencode($soumission['fichier']) ?>" class="btn btn-secondary">Télécharger le JSON</a>
-                    <form method="post" action="soumissions.php" onsubmit="return confirm('Supprimer définitivement cette soumission ?');">
+                    <a href="soumission.php?fichier=<?= urlencode($soumission['fichier']) ?>" class="icon-btn" title="Télécharger le JSON" aria-label="Télécharger le JSON">
+                      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+                    </a>
+                    <form method="post" action="soumissions.php" class="admin-inline-form" onsubmit="return confirm('Supprimer définitivement cette soumission ?');">
                       <input type="hidden" name="csrf" value="<?= htmlspecialchars(archicad_admin_csrf_token()) ?>">
                       <input type="hidden" name="fichier" value="<?= htmlspecialchars($soumission['fichier']) ?>">
-                      <button type="submit" name="supprimer" value="1" class="btn-danger">Supprimer</button>
+                      <button type="submit" name="supprimer" value="1" class="icon-btn danger" title="Supprimer" aria-label="Supprimer">
+                        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+                      </button>
                     </form>
                   </div>
                 </td>

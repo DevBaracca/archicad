@@ -36,15 +36,17 @@ includes/auth.php              Session client + limitation de débit des connexi
 includes/users.php             Comptes clients (création, recherche, mot de passe)
 includes/configurations.php    Configurations enregistrées par les clients
 includes/soumissions.php       Configurations soumises via « Soumettre »
+includes/catalogue.php         Catalogues du configurateur (menuiseries, modèles de modules, enveloppe)
 includes/admin-auth.php        Session administrateur + CSRF
 includes/admin-head.php        En-tête du back-office
 includes/admin-footer.php      Pied de page du back-office
-admin/                         Back-office (tableau de bord, utilisateurs, soumissions)
+admin/                         Back-office (tableau de bord, utilisateurs, soumissions, catalogues)
 assets/                        CSS, JS, images du site (dont admin.css pour le back-office)
 configurateur/                 Application React compilée (générée par le build)
 src/                           Source React de l'application (Vite, racine = src/)
 php/api_session.php            API : état de la session client (pour l'application React)
 php/api_configurations.php     API : enregistrer/lister/charger/supprimer une configuration
+php/api_catalogue.php          API : lecture des catalogues (pour l'application React)
 php/soumettre.php              API : bouton « Soumettre » (envoi de la configuration à Baracca)
 php/trace_module.php           Endpoint optionnel de traçage des configurations
 TEST/                          Exemple de JSON + script Python d'import Archicad
@@ -69,8 +71,9 @@ Depuis l'onglet « Export JSON » du configurateur, un client connecté peut :
   back-office (`admin/soumissions.php`).
 
 Le **back-office** (`/admin/`) permet de gérer les comptes clients
-(réinitialiser un mot de passe, supprimer un compte et ses configurations) et
-de consulter les soumissions. Identifiants par défaut (à changer dans
+(réinitialiser un mot de passe, supprimer un compte et ses configurations),
+de consulter les soumissions et de gérer les **catalogues du configurateur**
+(lien « Configurateur » dans le menu). Identifiants par défaut (à changer dans
 `config.php` après la première connexion) : `admin` / `Baracca2025!`.
 
 Stockage : fichiers JSON dans `data/` (même modèle que les sites invest et
@@ -97,15 +100,16 @@ puis remplacez `ARCHICAD_ADMIN_PASSWORD_HASH` dans `config.php`.
      `politique-confidentialite`, `send_newsletter`)
    - `config.php` (pensez à y changer le mot de passe administrateur)
    - `includes/` (`head.html`, `footer.php`, `auth.php`, `users.php`,
-     `configurations.php`, `soumissions.php`, `admin-auth.php`,
-     `admin-head.php`, `admin-footer.php`)
-   - `admin/` (back-office)
-   - `assets/` (CSS, JS, images)
+     `configurations.php`, `soumissions.php`, `catalogue.php`,
+     `admin-auth.php`, `admin-head.php`, `admin-footer.php`)
+   - `admin/` (back-office, dont `configurateur.php` pour les catalogues)
+   - `assets/` (CSS, JS, images — dont `images/catalogue/` pour les visuels
+     des menuiseries envoyés depuis le back-office)
    - `configurateur/` (l'application compilée — c'est elle qui est servie)
    - `data/.htaccess` (le dossier `data/` et son contenu sont créés
      automatiquement à la première utilisation)
-   - `php/` (`api_session.php`, `api_configurations.php`, `soumettre.php`,
-     et `trace_module.php` si vous activez le traçage)
+   - `php/` (`api_session.php`, `api_configurations.php`, `api_catalogue.php`,
+     `soumettre.php`, et `trace_module.php` si vous activez le traçage)
    - `TEST/` (le JSON exemple est lié depuis le pied de page)
 
    **Inutile sur le serveur** (build local uniquement) : `node_modules/`
@@ -130,19 +134,105 @@ const TRACE_URL = "/php/trace_module.php";
 URL. Le fichier `php/trace_module.php` fourni sauvegarde chaque
 configuration en JSON daté (et peut envoyer un e-mail à l'architecte).
 
-## Personnalisation du catalogue
+## Catalogues du configurateur (back-office)
 
-Tous les produits (murs, toitures, planchers, façades) sont dans
-`src/App.jsx`, en tête de fichier (constantes `MURS`, `TOITURES`,
-`PLANCHERS`, `FACADES`). Modifiez-les pour refléter le catalogue
-Baracca réel.
+Les catalogues proposés aux clients sont gérés depuis le back-office
+(`admin/configurateur.php`, lien « Configurateur » du menu admin), en six
+onglets : **Modules, Murs, Planchers, Toitures, Ouvrants, Surfaces**. L'ajout
+/ la modification d'un élément se fait dans une **boîte
+(modale, descendue de 20 px pour ne pas être cachée par le menu fixe)** :
+bouton « + » à côté du titre de la rubrique, crayon bleu pour modifier,
+croix blanche sur fond rouge pour supprimer ; à la validation la boîte se
+referme. Le contenu des pages admin est descendu de 20 px (menu fixe).
+
+- **Modules** — géométrie prédéfinie (longueur, largeur, hauteur
+  sous plafond, **toiture choisie dans la rubrique Toitures**, pente,
+  pignon), **éléments d'enveloppe liés (mur, plancher, toiture)** et tarif
+  (la surface extérieure est celle du mur choisi).
+  Le client choisit un modèle dans l'onglet « Module » : géométrie et
+  enveloppe lui sont alors présentées en lecture seule (pas de module
+  « sur mesure »).
+- **Murs** — types de mur porteur (épaisseur, surface, couleur rgb, favori
+  Archicad, tarif), liés aux modules.
+- **Planchers** — épaisseur (dessinée en élévation), favori Archicad, tarif,
+  liés aux modules.
+- **Toitures** — géométrie monopente/deux pentes/terrasse, épaisseur, surface,
+  couleur rgb, favori, tarif (à l'identique des murs), liées aux modules.
+- **Surfaces** — habillage extérieur : visuel téléversé (utilisé dans les
+  élévations du configurateur) et tarif. **Pas de favori Archicad** pour
+  cette rubrique.
+- **Ouvrants** — baies vitrées, fenêtres et portes, avec visuel (image
+  envoyée depuis le back-office, stockée dans `assets/images/catalogue/`),
+  dimensions (largeur × hauteur), favori Archicad et tarif. Le client
+  choisit la menuiserie dans ce catalogue (onglet « Murs & ouvertures ») et
+  la positionne sur le mur par pas de 60 cm (flèches « − » / « + »,
+  affichage en cm, minimum 7,8 cm — pas de saisie libre).
+
+Convention de dessin : la **ligne directrice** des murs est à l'intérieur du
+module, l'épaisseur est rejetée vers l'extérieur (plan et élévations, à
+échelle unique horizontal/vertical). La position des ouvertures est mesurée
+depuis l'origine de la ligne directrice : en élévation, une menuiserie au
+minimum (7,8 cm) apparaît donc à 7,8 cm + épaisseur du mur du bord extérieur.
+
+Unités : toutes les **dimensions linéaires** (géométrie du module, épaisseur
+de mur, épaisseur de plancher, largeur/hauteur des menuiseries, position des
+ouvertures) sont affichées et saisies en **cm avec une précision au mm**
+(0,1 cm, ex. « 33,5 cm ») côté configurateur et back-office ; le stockage
+(catalogues JSON, export vers Archicad) reste en **mètres**. Les surfaces
+restent en m² et les volumes en m³. Couleurs des murs : stockées en **rgb**
+(choix r/g/b dans le back-office), affichées en **hexadécimal** (#rrggbb)
+dans le plan et les élévations du configurateur.
+
+**Favoris Archicad** : murs, planchers, toitures et menuiseries portent un
+champ `favori` (nom du favori Archicad à appliquer, vide = aucun ; les
+surfaces n'en ont pas). Le favori est repris dans l'export JSON
+(`module.murs[*].favori`, `module.plancher.favori`, `module.facade.favori`,
+`module.toiture.favori`, `module.murs[*].ouvertures[*].favori`) pour que
+`baracca_import.py` applique le bon favori Archicad. La **toiture** exportée
+porte aussi sa géométrie (`module.toiture.geometrie`) et son épaisseur
+(`module.toiture.epaisseur`) ; les murs exportent leur surface
+(`module.murs[*].surface`).
+
+Plancher : en élévation, le plancher est dessiné sous les murs — sa **ligne
+directrice est en haut** (point bas des murs), son épaisseur s'étend vers le
+bas, ses bords à **21,7 cm au-delà de la ligne directrice des murs** (la
+représentation du plancher est donc 21,7 cm plus large que les lignes
+directrices), et le **trait du sol est à 20 cm sous le bas du plancher**.
+Dans l'export JSON, `module.plancher` est un objet
+`{ nom, favori, epaisseur, longueur, largeur }` avec
+`longueur/largeur = dimensions du module + 2 × 0,217 m` (référence : ligne
+directrice des murs). La **surface plancher** reste calculée sur la ligne
+directrice des murs ; l'**emprise au sol** (surface plancher + épaisseur des
+murs rejetée à l'extérieur) est une métrique affichée et exportée
+(`metriques.empriseAuSol`).
+
+Toiture : en élévation, la toiture est dessinée en **bande d'épaisseur** au-
+dessus de sa **ligne directrice en bas** (le haut des murs). Si le mur a une
+surface avec un visuel, celui-ci remplit le mur de l'élévation (motif SVG),
+sinon la couleur rgb (affichée en hex) est utilisée.
+
+Chaque élément porte un champ **tarif** : le configurateur additionne les
+tarifs (modèle + mur + plancher + façade + menuiseries) pour afficher au
+client le **tarif global** du projet au fur et à mesure, repris dans
+l'export JSON (`metriques.tarif`).
+
+Stockage : `data/catalogue/` (JSON, hors git, amorcé automatiquement au
+premier chargement avec les valeurs historiques du configurateur).
+L'application React lit les catalogues en lecture seule via
+`php/api_catalogue.php` (menuiseries, modules, enveloppe murs/planchers/
+surfaces/toitures, toitures) ; si l'API est indisponible, elle retombe sur
+les catalogues par défaut définis en tête de `src/App.jsx` (`MURS`,
+`PLANCHERS`, `FACADES`, `TOITURES`). La géométrie de toiture reste un
+vocabulaire fixe (`archicad_catalogue_toiture_types()` : monopente, deux
+pentes, terrasse) — champ `type` des éléments de la rubrique Toitures.
 
 ## Schéma d'export JSON
 
 Le schéma est versionné (`schemaVersion: "1.0"`). Toute évolution doit
 rester rétro-compatible, car les scripts Archicad s'appuient sur la
 clé `module` et ses sous-clés `dimensions`, `plancher`, `toiture`,
-`murs`.
+`murs`. Le détail des tarifs figure dans `metriques.tarif` (module, mur,
+plancher, façade, menuiseries, total) — ajout rétro-compatible.
 
 ## Sécurité iframe (recommandé)
 
