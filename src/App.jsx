@@ -92,8 +92,8 @@ const toitTypeOf = (d, env) => toitureDefOf(d, env).type || "monopente";
 function surfaceToiture(d, tt) {
   if (tt === "terrasse") return surfacePlancher(d);
   const angle = (d.pente * Math.PI) / 180;
-  const base = tt === "monopente" ? d.largeur : d.largeur / 2;
-  return d.longueur * (base / Math.cos(angle));
+  // monopente : 1 versant sur toute la largeur ; deux pentes : 2 versants de largeur/2
+  return d.longueur * (d.largeur / Math.cos(angle));
 }
 
 function hauteurFaitage(d, tt) {
@@ -205,10 +205,11 @@ function surfacesChiffrage(d, env) {
   const cosPente = Math.cos((d.pente * Math.PI) / 180);
   const M = mursChiffrage(d, env);
   const plancher = surfacePlancher(d);
-  const baseToit = toitType === "monopente" ? d.largeur : d.largeur / 2;
+  const versants = toitType === "monopente" ? 1 : 2; // deux pentes = 2 versants de largeur/2
+  const baseVersant = d.largeur / versants;
   const toitureS = toitType === "terrasse"
     ? plancher
-    : d.longueur * (baseToit / cosPente + 2 * epToit); // versant + ép. en haut et en bas
+    : d.longueur * versants * (baseVersant / cosPente + 2 * epToit); // chaque versant + ép. en haut et en bas
   const ouvrants = FACES.reduce(
     (n, f) => n + (d.murs[f.key].actif ? d.murs[f.key].ouvertures.length : 0),
     0
