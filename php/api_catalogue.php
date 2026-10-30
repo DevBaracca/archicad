@@ -19,7 +19,7 @@ echo json_encode([
         'enveloppe' => [
             'murs' => archicad_load_catalogue('murs'),
             'planchers' => archicad_load_catalogue('planchers'),
-            'facades' => archicad_load_catalogue('facades'),
+            'surfaces' => archicad_load_catalogue('surfaces'),
         ],
         'toitures' => archicad_catalogue_toitures(),
     ],

@@ -48,16 +48,14 @@ const DEFAULTS = {
   pignon: true,
   plancher: "clt_dalle",
   facade: "bardage_bois",
+  surfaceToiture: null, // surface de toiture choisie (null = celle de la rubrique toitures)
   murs: {
-    nord: { actif: true, ouvertures: [] },
-    est: { actif: true, ouvertures: [] },
-    sud: { actif: true, ouvertures: [{ menuiserieId: "baie-120x215", type: "baie", largeur: 1.2, hauteur: 2.15, position: 1.5 }] },
-    ouest: { actif: true, ouvertures: [{ menuiserieId: "porte-90x205", type: "porte", largeur: 0.9, hauteur: 2.05, position: 0.5 }] },
+    nord: { actif: true, ouvertures: [], surface: null }, // surface du mur (null = celle du type de mur)
+    est: { actif: true, ouvertures: [], surface: null },
+    sud: { actif: true, ouvertures: [], surface: null },
+    ouest: { actif: true, ouvertures: [], surface: null },
   },
 };
-
-/* URL de l'endpoint PHP de traçage (optionnel — laisser vide pour désactiver) */
-const TRACE_URL = ""; // ex. "/api/trace_module.php"
 
 /* Endpoints du site (même origine : l'application est servie par le site PHP
    sous /configurateur/ et intégrée par iframe dans configurateur.php) */
@@ -143,6 +141,9 @@ const fmtEur = (n) =>
 /* m -> cm, au dixième près (précision mm), virgule française (7,8 / 33,5 / 150) */
 const fmtCm = (m) => String(Math.round(m * 1000) / 10).replace(".", ",");
 
+/* m² -> « 42,0 m² » (virgule française, 1 décimale) */
+const fmtM2 = (m2) => m2.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " m²";
+
 /* Couleur d'affichage des murs en hexadécimal (#rrggbb), à partir du rgb
    stocké dans le catalogue (le choix des couleurs reste en rgb côté back-office) */
 const rgbHex = (rgb) =>
@@ -156,23 +157,93 @@ function tarifOuverture(o, menuiseries) {
   return m ? +m.tarif || 0 : 0;
 }
 
+/* coût au m² d'un élément de catalogue (murs, planchers, toitures, surfaces) */
+const eurM2 = (item) => (item ? +item.tarif || 0 : 0);
+
+/* Murs retenus pour le chiffrage (extérieurs, épaisseurs comprises), avec détail
+   par mur : longueur extérieure (ligne directrice + 2 épaisseurs) × hauteur, moins
+   les surfaces des ouvrants ; si pignon, + triangle de toiture sur est/ouest et
+   épaisseur de toiture sur les 2 versants. */
+function mursChiffrage(d, env) {
+  const murDef = env.murs.find((m) => m.id === d.murType) || env.murs[0];
+  const toiture = toitureDefOf(d, env);
+  const toitType = toitTypeOf(d, env);
+  const epMur = +(murDef?.epaisseur ?? 0.14);
+  const epToit = +(toiture?.epaisseur ?? 0.30);
+  const hF = hauteurFaitage(d, toitType);
+  const cosPente = Math.cos((d.pente * Math.PI) / 180);
+  let total = 0;
+  const detail = [];
+  FACES.forEach((f) => {
+    if (!d.murs[f.key].actif) return;
+    const longueurExt = murLongueur(d, f.key) + 2 * epMur; // épaisseurs aux 2 extrémités
+    let area = longueurExt * d.hauteur;
+    if (toitType === "deuxpentes" && d.pignon && (f.key === "est" || f.key === "ouest")) {
+      const base = d.largeur + 2 * epMur;
+      const triangle = (base * hF) / 2;                 // triangle du pignon
+      const versant = base / 2 / cosPente;              // longueur d'un versant
+      area += triangle + 2 * versant * epToit;          // + épaisseur de toiture sur les 2 versants
+    }
+    // les ouvrants remplacent de la surface de mur
+    area -= d.murs[f.key].ouvertures.reduce((ss, o) => ss + o.largeur * o.hauteur, 0);
+    const surfaceId = d.murs[f.key].surface ?? murDef?.surface ?? "";
+    const sd = env.facades.find((f) => f.id === surfaceId);
+    const amount = (eurM2(murDef) + eurM2(sd)) * area; // (coût mur + coût surface) × surface du mur
+    total += area;
+    detail.push({ key: f.key, label: f.label, surfaceId, area, amount });
+  });
+  return { total, detail };
+}
+
+/* Surfaces retenues pour le chiffrage : murs (avec détail par mur), plancher
+   (ligne directrice), toiture (versant + 2 épaisseurs de toiture, haut et bas),
+   ouvrants (nombre d'ouvertures, murs actifs). */
+function surfacesChiffrage(d, env) {
+  const toiture = toitureDefOf(d, env);
+  const toitType = toitTypeOf(d, env);
+  const epToit = +(toiture?.epaisseur ?? 0.30);
+  const cosPente = Math.cos((d.pente * Math.PI) / 180);
+  const M = mursChiffrage(d, env);
+  const plancher = surfacePlancher(d);
+  const baseToit = toitType === "monopente" ? d.largeur : d.largeur / 2;
+  const toitureS = toitType === "terrasse"
+    ? plancher
+    : d.longueur * (baseToit / cosPente + 2 * epToit); // versant + ép. en haut et en bas
+  const ouvrants = FACES.reduce(
+    (n, f) => n + (d.murs[f.key].actif ? d.murs[f.key].ouvertures.length : 0),
+    0
+  );
+  return { murs: M.total, mursDetail: M.detail, plancher, toiture: toitureS, ouvrants };
+}
+
 function tarifTotal(d, env) {
   const module = env.modules?.find((m) => m.id === d.moduleId);
   const mur = env.murs.find((m) => m.id === d.murType);
   const plancher = env.planchers.find((p) => p.id === d.plancher);
   const facade = env.facades.find((f) => f.id === d.facade);
+  const toiture = toitureDefOf(d, env);
+  const S = surfacesChiffrage(d, env);
+  // Ouvrants : coût à l'unité (une unité par ouverture, murs actifs seulement)
   const menuiseries = FACES.reduce(
-    (s, f) => s + d.murs[f.key].ouvertures.reduce((ss, o) => ss + tarifOuverture(o, env.menuiseries), 0),
+    (s, f) => s + (d.murs[f.key].actif
+      ? d.murs[f.key].ouvertures.reduce((ss, o) => ss + tarifOuverture(o, env.menuiseries), 0)
+      : 0),
     0
   );
+  // murs : somme des montants par mur (coût mur + coût de la surface choisie × surface)
+  const murAmount = S.mursDetail.reduce((s, m) => s + m.amount, 0);
+  // toiture : (coût de la toiture + coût de la surface choisie) × surface toiture
+  const sdToit = env.facades.find((f) => f.id === (d.surfaceToiture ?? toiture?.surface ?? ""));
+  const toitureAmount = (eurM2(toiture) + eurM2(sdToit)) * S.toiture;
   const t = {
     module: module ? +module.tarif || 0 : 0,
-    mur: mur ? +mur.tarif || 0 : 0,
-    plancher: plancher ? +plancher.tarif || 0 : 0,
+    mur: murAmount,
+    plancher: eurM2(plancher) * S.plancher,
     facade: facade ? +facade.tarif || 0 : 0,
+    toiture: toitureAmount,
     menuiseries,
   };
-  t.total = t.module + t.mur + t.plancher + t.facade + t.menuiseries;
+  t.total = t.module + t.mur + t.plancher + t.facade + t.toiture + t.menuiseries;
   return t;
 }
 
@@ -195,7 +266,7 @@ function buildExport(d, env) {
       type: murDef.nom,
       epaisseur: murDef.epaisseur,
       materiau: murDef.materiau ?? surfaceDef.nom,
-      surface: surfaceDef.nom, // surface (habillage) du mur
+      surface: (env.facades.find((f) => f.id === (face.surface ?? murDef.surface)) || env.facades[0]).nom, // surface choisie pour ce mur
       favori: murDef.favori ?? "", // favori Archicad pour ce mur
       longueur: murLongueur(d, f.key),
       hauteur: d.hauteur,
@@ -233,6 +304,7 @@ function buildExport(d, env) {
         type: toitureDef.nom,
         geometrie: toitType, // monopente / deuxpentes / terrasse
         favori: toitureDef.favori ?? "", // favori Archicad pour la toiture
+        surface: (env.facades.find((f) => f.id === (d.surfaceToiture ?? toitureDef.surface)) || env.facades[0]).nom, // surface choisie pour la toiture
         epaisseur: +(+(toitureDef.epaisseur ?? 0.30)).toFixed(3),
         pente: toitType === "terrasse" ? null : d.pente,
         pignon: toitType === "deuxpentes" ? d.pignon : null,
@@ -367,7 +439,7 @@ function Elevation({ d, murs, planchers, surfaces, toiture, faceKey }) {
   const toitType = toiture.type || "monopente";
   const epToit = +(toiture.epaisseur ?? 0.30);   // épaisseur de la toiture (m)
   const toitRgb = toiture.rgb || [120, 113, 108];
-  const surfaceDef = surfaces.find((s) => s.id === murDef.surface) || surfaces[0];
+  const surfaceDef = surfaces.find((s) => s.id === (d.murs[faceKey]?.surface ?? murDef.surface)) || surfaces[0];
   // Échelle UNIQUE en horizontal et en vertical (les proportions largeur /
   // hauteur sont conservées), en réservant la place de la toiture, du
   // plancher et du sol. Ligne directrice des murs à l'intérieur : la façade
@@ -480,6 +552,11 @@ export default function App() {
   const [selectedFace, setSelectedFace] = useState("sud");
   const [tab, setTab] = useState("module");
   const [flash, setFlash] = useState("");
+  const [caracOpen, setCaracOpen] = useState(false); // zone « Caractéristiques techniques » fermée par défaut
+  const [chiffrageOpen, setChiffrageOpen] = useState(false); // détail par mur du chiffrage, fermé par défaut
+  const [addOpen, setAddOpen] = useState(false);     // zone d'ajout d'un ouvrant (sous le +)
+  const [addMenuiserieId, setAddMenuiserieId] = useState("");
+  const [addError, setAddError] = useState("");
 
   /* ----- Catalogues du back-office (menuiseries, modules, enveloppe) ----- */
   const [catalogue, setCatalogue] = useState(null);
@@ -499,7 +576,7 @@ export default function App() {
   const env = {
     murs: catalogue?.enveloppe?.murs?.length ? catalogue.enveloppe.murs : MURS,
     planchers: catalogue?.enveloppe?.planchers?.length ? catalogue.enveloppe.planchers : PLANCHERS,
-    facades: catalogue?.enveloppe?.facades?.length ? catalogue.enveloppe.facades : FACADES,
+    facades: catalogue?.enveloppe?.surfaces?.length ? catalogue.enveloppe.surfaces : FACADES,
     menuiseries: catalogue?.menuiseries?.length ? catalogue.menuiseries : null,
     modules: catalogue?.modules?.length ? catalogue.modules : null,
     toitures: catalogue?.toitures?.length ? catalogue.toitures : TOITURES,
@@ -510,11 +587,13 @@ export default function App() {
   const toitType = toitTypeOf(d, env);
   const toitureNom = toitureDef.nom;
   const murSel = env.murs.find((m) => m.id === d.murType);
+  const moduleSel = env.modules?.find((m) => m.id === d.moduleId);
   const surfaceSel = env.facades.find((f) => f.id === murSel?.surface) || env.facades[0];
+  const surfaceNom = (id) => env.facades.find((f) => f.id === id)?.nom || "—";
   const plancherSel = env.planchers.find((p) => p.id === d.plancher);
-  const facadeSel = env.facades.find((f) => f.id === d.facade);
   const json = useMemo(() => JSON.stringify(buildExport(d, env), null, 2), [d, catalogue]); // eslint-disable-line react-hooks/exhaustive-deps
   const tarifs = useMemo(() => tarifTotal(d, env), [d, catalogue]); // eslint-disable-line react-hooks/exhaustive-deps
+  const surfaces = useMemo(() => surfacesChiffrage(d, env), [d, catalogue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Patch d'état appliqué au choix d'un modèle de module du catalogue :
      géométrie prédéfinie + éléments d'enveloppe liés au modèle
@@ -538,16 +617,34 @@ export default function App() {
     set(m ? modulePatch(m) : { moduleId: null });
   };
 
-  const addOuverture = () => {
-    const def = env.menuiseries?.[0];
+  const ouvrirAjout = () => {
+    setAddMenuiserieId(env.menuiseries?.[0]?.id || "");
+    setAddError("");
+    setAddOpen(true);
+  };
+  const validerAjout = () => {
+    const def = env.menuiseries?.find((x) => x.id === addMenuiserieId);
+    const largeur = def ? +def.largeur : 1.0;
+    const hauteur = def ? +def.hauteur : 2.1;
+    const L = murLongueur(d, selectedFace);
+    // Place occupée = fin de la dernière ouverture
+    const occupe = face.ouvertures.reduce((mx, o) => Math.max(mx, o.position + o.largeur), 0);
+    // Position calée sur la grille 7,8 cm + n × 60 cm, au moins après la dernière ouverture
+    const k = Math.max(0, Math.ceil((occupe - POSITION_MIN) / POSITION_STEP - 1e-9));
+    const position = Math.round((POSITION_MIN + k * POSITION_STEP) * 1000) / 1000;
+    // Vérification préalable : la place restante sur le mur suffit-elle ?
+    if (position + largeur > L + 1e-9) {
+      setAddError(`Plus de place sur ce mur (${fmtCm(L)} cm) pour cet ouvrant (${fmtCm(largeur)} cm) à partir de ${fmtCm(position)} cm.`);
+      return;
+    }
     setFace(selectedFace, {
       ouvertures: [
         ...face.ouvertures,
-        def
-          ? { menuiserieId: def.id, type: def.type, largeur: +def.largeur, hauteur: +def.hauteur, position: 1.0 }
-          : { type: "baie", largeur: 1.0, hauteur: 2.1, position: 1.0 },
+        { menuiserieId: def?.id ?? null, type: def?.type || "baie", largeur, hauteur, position },
       ],
     });
+    setAddOpen(false);
+    setAddError("");
   };
   const updateOuverture = (i, patch) =>
     setFace(selectedFace, { ouvertures: face.ouvertures.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
@@ -601,7 +698,20 @@ export default function App() {
         const s = await r.json();
         if (cancelled) return;
         setSession(s);
-        if (!s.loggedIn) return;
+        if (!s.loggedIn) {
+          // Enregistrement automatique local restauré (visiteur non connecté, pas de ?config=)
+          try {
+            const auto = localStorage.getItem("baracca_autosave");
+            if (auto && !new URLSearchParams(window.location.search).get("config")) {
+              const saved = JSON.parse(auto);
+              if (saved && saved.config) {
+                setD(mergeConfig(saved.config));
+                notifier("Brouillon restauré ✓");
+              }
+            }
+          } catch { /* silencieux */ }
+          return;
+        }
         const l = await postConfigs({ action: "list" });
         if (cancelled) return;
         if (l.ok) setConfigs(l.configurations);
@@ -620,6 +730,32 @@ export default function App() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Enregistrement automatique avant de quitter la page (changement de page / fermeture) :
+  // compte client -> sauvegarde serveur ; sinon -> brouillon local (localStorage)
+  useEffect(() => {
+    const autosave = () => {
+      try {
+        const payload = { action: "save", nom: (d.nom || "module_baracca").trim(), config: d, json };
+        if (session?.loggedIn) {
+          fetch(API_CONFIGS, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            keepalive: true,
+          }).catch(() => {});
+        } else {
+          localStorage.setItem("baracca_autosave", JSON.stringify({ config: d, json, at: Date.now() }));
+        }
+      } catch { /* silencieux : le brouillon ne doit pas bloquer la navigation */ }
+    };
+    window.addEventListener("pagehide", autosave);
+    window.addEventListener("beforeunload", autosave);
+    return () => {
+      window.removeEventListener("pagehide", autosave);
+      window.removeEventListener("beforeunload", autosave);
+    };
+  }, [d, json, session]);
 
   // Chargement des catalogues (menuiseries, modèles de modules, enveloppe)
   useEffect(() => {
@@ -643,7 +779,7 @@ export default function App() {
       const patch = {};
       if (e.murs?.length && !e.murs.some((m) => m.id === prev.murType)) patch.murType = e.murs[0].id;
       if (e.planchers?.length && !e.planchers.some((p) => p.id === prev.plancher)) patch.plancher = e.planchers[0].id;
-      if (e.facades?.length && !e.facades.some((f) => f.id === prev.facade)) patch.facade = e.facades[0].id;
+      if (e.surfaces?.length && !e.surfaces.some((f) => f.id === prev.facade)) patch.facade = e.surfaces[0].id;
       if (prev.moduleId && catalogue.modules?.length && !catalogue.modules.some((m) => m.id === prev.moduleId)) {
         patch.moduleId = null;
       }
@@ -719,32 +855,11 @@ export default function App() {
     setSubmitting(false);
   };
 
-  const copier = async () => {
-    try { await navigator.clipboard.writeText(json); notifier("JSON copié ✓"); }
-    catch { notifier("Copie impossible"); }
-  };
-
-  const telecharger = async () => {
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${(d.nom || "module_baracca").replace(/[^\w.-]/g, "_")}.json`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    notifier("Fichier téléchargé ✓");
-    // Traçage optionnel vers le site (voir README — TRACE_URL)
-    if (TRACE_URL) {
-      try {
-        await fetch(TRACE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: json });
-      } catch { /* silencieux : la traçabilité ne doit pas bloquer l'export */ }
-    }
-  };
-
   const tabs = [
     ["module", "Module"],
-    ["murs", "Murs & ouvertures"],
-    ["export", "Export JSON"],
+    ["murs", "Murs"],
+    ["toiture", "Toiture"],
+    ["ouvrants", "Ouvrants"],
   ];
 
   return (
@@ -759,7 +874,8 @@ export default function App() {
         </span>
       </header>
 
-      <div className="grid2">
+      <div className="layout">
+        <div className="layout-left">
         <div className="card">
           <div className="card-title">Plan du module (cliquez un mur pour l'éditer)</div>
           <div className="card-body"><Plan d={d} murs={env.murs} toitType={toitType} selectedFace={selectedFace} onSelectFace={setSelectedFace} /></div>
@@ -788,9 +904,10 @@ export default function App() {
             <Elevation d={d} murs={env.murs} planchers={env.planchers} surfaces={env.facades} toiture={toitureDef} faceKey={selectedFace} />
           </div>
         </div>
-      </div>
-
-      <div className="card" style={{ marginTop: 20 }}>
+        </div>
+        <div className="layout-right">
+      <div className="card">
+        <div className="card-title">Réglages</div>
         <div className="card-body">
           <div className="tabs">
             {tabs.map(([key, label]) => (
@@ -798,31 +915,48 @@ export default function App() {
                 onClick={() => setTab(key)}>{label}</button>
             ))}
           </div>
+          <div className="reglage-grid">
+          <div className="reglage-main">
+          {tab === "module" && (
+            <>
+              <div className="field field-module-name">
+                <input type="text" value={d.nom} onChange={(e) => set({ nom: e.target.value })} placeholder="Nom du module" />
+              </div>
+              <div className="field" style={{ marginTop: 12 }}>
+                <label>Modèle de module (catalogue)</label>
+                <select value={d.moduleId || ""} onChange={(e) => applyModule(e.target.value)}>
+                  {!d.moduleId && <option value="">— Choisir un module —</option>}
+                  {env.modules?.map((m) => {
+                    const modToit = env.toitures.find((t) => t.id === m.toiture);
+                    const modMur = env.murs.find((x) => x.id === m.mur);
+                    const modSurf = env.facades.find((f) => f.id === modMur?.surface);
+                    const surf = (m.longueur * m.largeur).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+                    return (
+                      <option key={m.id} value={m.id}>
+                        {m.nom} — {surf} m² — {modToit?.nom || m.toiture} — {modSurf?.nom || "—"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </>
+          )}
+          </div>
+          <div className="reglage-side">
+            {moduleSel?.image
+              ? <img src={moduleSel.image} alt={moduleSel.nom || "Module"} className="reglage-visual-img" />
+              : <div className="reglage-visual-empty">—</div>}
+          </div>
+          </div>
 
           {tab === "module" && (
             <>
-              <div className="fields-grid">
-                <Field label="Nom du module">
-                  <input type="text" value={d.nom} onChange={(e) => set({ nom: e.target.value })} />
-                </Field>
-                <Field label="Modèle de module (catalogue)">
-                  <select value={d.moduleId || ""} onChange={(e) => applyModule(e.target.value)}>
-                    {!d.moduleId && <option value="">— Choisir un module —</option>}
-                    {env.modules?.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.nom} ({fmtCm(m.longueur)} × {fmtCm(m.largeur)} cm, h {fmtCm(m.hauteur)} cm)
-                        {+m.tarif > 0 ? ` — ${fmtEur(m.tarif)}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-              <p className="config-hint" style={{ marginTop: 0 }}>
-                Le modèle du catalogue définit la géométrie et l'enveloppe du module — elles ne sont pas
-                modifiables ici (elles vous sont présentées en lecture seule, catalogue géré dans le back-office).
-              </p>
               <hr className="sep" />
-              <p className="section-label">Géométrie du module</p>
+              <p className="section-label carac-toggle" onClick={() => setCaracOpen((o) => !o)}>
+                <span className={"carac-arrow" + (caracOpen ? " open" : "")}></span>
+                Caractéristiques techniques
+              </p>
+              {caracOpen && (
               <div className="spec">
                 <div className="spec-row"><span className="spec-k">Longueur × largeur</span><span className="spec-v">{fmtCm(d.longueur)} × {fmtCm(d.largeur)} cm</span></div>
                 <div className="spec-row"><span className="spec-k">Hauteur sous plafond</span><span className="spec-v">{fmtCm(d.hauteur)} cm</span></div>
@@ -830,46 +964,78 @@ export default function App() {
                   <span className="spec-k">Toiture</span>
                   <span className="spec-v">
                     {toitureNom}
-                    {+toitureDef.epaisseur > 0 && ` — ép. ${fmtCm(toitureDef.epaisseur)} cm`}
                     {toitType !== "terrasse" && ` — pente ${d.pente}°`}
                     {toitType === "deuxpentes" && (d.pignon ? " — pignon" : " — croupe")}
-                    {toitureDef.favori && ` — favori « ${toitureDef.favori} »`}
                   </span>
                 </div>
-              </div>
-              <hr className="sep" />
-              <p className="section-label">Enveloppe du module</p>
-              <div className="spec">
                 <div className="spec-row">
-                  <span className="spec-k">Mur porteur</span>
-                  <span className="spec-v">{murSel?.nom || "—"}{surfaceSel ? ` — surface ${surfaceSel.nom}` : ""}{murSel && +murSel.tarif > 0 ? ` — ${fmtEur(murSel.tarif)}` : ""}{murSel?.favori ? ` — favori « ${murSel.favori} »` : ""}</span>
+                  <span className="spec-k">Murs</span>
+                  <span className="spec-v">{murSel?.nom || "—"}{surfaceSel ? ` — surface extérieure : ${surfaceSel.nom}` : ""}</span>
                 </div>
                 <div className="spec-row">
                   <span className="spec-k">Plancher</span>
-                  <span className="spec-v">{plancherSel?.nom || "—"}{plancherSel && +plancherSel.tarif > 0 ? ` — ${fmtEur(plancherSel.tarif)}` : ""}{plancherSel?.favori ? ` — favori « ${plancherSel.favori} »` : ""}</span>
-                </div>
-                <div className="spec-row">
-                  <span className="spec-k">Surface extérieure (du mur)</span>
-                  <span className="spec-v">{facadeSel?.nom || "—"}{facadeSel && +facadeSel.tarif > 0 ? ` — ${fmtEur(facadeSel.tarif)}` : ""}{facadeSel?.favori ? ` — favori « ${facadeSel.favori} »` : ""}</span>
+                  <span className="spec-v">{plancherSel?.nom || "—"}</span>
                 </div>
               </div>
+              )}
               <div className="metrics">
                 <div className="metric"><div className="k">Surface plancher</div><div className="v">{surfacePlancher(d).toFixed(1)} m²</div></div>
                 <div className="metric"><div className="k">Emprise au sol</div><div className="v">{empriseAuSol(d, murSel || env.murs[0]).toFixed(1)} m²</div></div>
                 <div className="metric"><div className="k">Surface toiture</div><div className="v">{surfaceToiture(d, toitType).toFixed(1)} m²</div></div>
                 <div className="metric"><div className="k">Volume brut</div><div className="v">{(surfacePlancher(d) * d.hauteur).toFixed(1)} m³</div></div>
                 <div className="metric"><div className="k">Menuiseries</div><div className="v">{FACES.reduce((s, f) => s + surfaceMenuiserie(d.murs[f.key]), 0).toFixed(2)} m²</div></div>
-                <div className="metric tarif"><div className="k">Tarif global du projet</div><div className="v">{fmtEur(tarifs.total)}</div></div>
               </div>
-              <p className="config-hint">
-                Tarif indicatif, mis à jour au fur et à mesure : modèle {fmtEur(tarifs.module)} + enveloppe{" "}
-                {fmtEur(tarifs.mur + tarifs.plancher + tarifs.facade)} + menuiseries {fmtEur(tarifs.menuiseries)}
-                {" "}(tarifs définis dans les catalogues du back-office).
-              </p>
             </>
           )}
 
           {tab === "murs" && (
+            <>
+              <p className="config-hint" style={{ marginTop: 0 }}>
+                Surface appliquée à chaque mur (définie dans le back-office, onglet « Surfaces »).
+              </p>
+              <div className="fields-grid">
+                {FACES.map((f) => {
+                  const defSurf = surfaceNom(d.murs[f.key].surface ?? murSel?.surface ?? "");
+                  return (
+                    <Field key={f.key} label={f.label}>
+                      <select
+                        value={d.murs[f.key].surface ?? murSel?.surface ?? ""}
+                        onChange={(e) => setFace(f.key, { surface: e.target.value || null })}
+                      >
+                        <option value="">Par défaut — {defSurf}</option>
+                        {env.facades.map((s) => (
+                          <option key={s.id} value={s.id}>{s.nom}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {tab === "toiture" && (
+            <>
+              <p className="config-hint" style={{ marginTop: 0 }}>
+                Surface appliquée à la toiture (définie dans le back-office, onglet « Surfaces »).
+              </p>
+              <div className="fields-grid">
+                <Field label="Toiture">
+                  <select
+                    value={d.surfaceToiture ?? toitureDef.surface ?? ""}
+                    onChange={(e) => set({ surfaceToiture: e.target.value || null })}
+                  >
+                    <option value="">Par défaut — {surfaceNom(toitureDef.surface ?? "")}</option>
+                    {env.facades.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nom}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            </>
+          )}
+
+          {tab === "ouvrants" && (
             <>
               <div className="face-picker">
                 {FACES.map((f) => (
@@ -883,6 +1049,36 @@ export default function App() {
                   onChange={(e) => setFace(selectedFace, { actif: e.target.checked })} />
                 {FACES.find((f) => f.key === selectedFace).label.toLowerCase()} présent dans le module
               </label>
+              {face.actif && (
+                <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  <button type="button" className="btn-add" onClick={ouvrirAjout} title="Rajouter un ouvrant">+</button>
+                  <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>rajouter un ouvrant</span>
+                </div>
+              )}
+              {addOpen && face.actif && (
+                <div className="ouverture add-zone">
+                  <div className="ouverture-main">
+                    <div className="menuiserie-row">
+                      <div className="fields-grid" style={{ flex: 1 }}>
+                        <Field label="Ouvrant (catalogue)">
+                          <select value={addMenuiserieId} onChange={(e) => setAddMenuiserieId(e.target.value)}>
+                            {env.menuiseries?.map((x) => (
+                              <option key={x.id} value={x.id}>
+                                {x.nom} — {fmtCm(x.largeur)} × {fmtCm(x.hauteur)} cm{+x.tarif > 0 ? ` — ${fmtEur(x.tarif)} HT` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      </div>
+                    </div>
+                    <button type="button" className="btn primary small" onClick={validerAjout}>Valider</button>
+                    <button type="button" className="icon-btn danger" onClick={() => setAddOpen(false)} title="Annuler" aria-label="Annuler">
+                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+                    </button>
+                  </div>
+                  {addError && <div className="field-error">{addError}</div>}
+                </div>
+              )}
               <hr className="sep" />
               {env.menuiseries && face.actif && (
                 <p className="config-hint" style={{ marginTop: 0 }}>
@@ -896,13 +1092,7 @@ export default function App() {
                     const m = env.menuiseries?.find((x) => x.id === o.menuiserieId);
                     return (
                     <div key={i} className="ouverture">
-                      <div className="ouverture-head">
-                        <span className="chip">
-                          Ouverture {i + 1} — mur {selectedFace}
-                          {m && +m.tarif > 0 ? ` — ${fmtEur(m.tarif)}` : ""}
-                        </span>
-                        <button className="btn ghost small" onClick={() => removeOuverture(i)}>Supprimer</button>
-                      </div>
+                      <div className="ouverture-main">
                       <div className="menuiserie-row">
                         {m?.image && <img src={m.image} alt={m.nom} className="menuiserie-thumb" />}
                         <div className="fields-grid" style={{ flex: 1 }}>
@@ -912,7 +1102,7 @@ export default function App() {
                                 <option value="">Ouverture sur mesure…</option>
                                 {env.menuiseries.map((x) => (
                                   <option key={x.id} value={x.id}>
-                                    {x.nom} — {fmtCm(x.largeur)} × {fmtCm(x.hauteur)} cm{+x.tarif > 0 ? ` — ${fmtEur(x.tarif)}` : ""}
+                                    {x.nom} — {fmtCm(x.largeur)} × {fmtCm(x.hauteur)} cm{+x.tarif > 0 ? ` — ${fmtEur(x.tarif)} HT` : ""}
                                   </option>
                                 ))}
                               </select>
@@ -938,18 +1128,25 @@ export default function App() {
                               </Field>
                             </>
                           )}
-                          <Field label="Position depuis l'origine (cm)">
+                          <Field label="position sur le mur">
                             <div className="stepper">
-                              <button type="button" className="btn small"
+                              <button type="button" className="btn small step-arrow"
                                 disabled={o.position - POSITION_STEP < POSITION_MIN - 1e-9}
-                                onClick={() => stepPosition(i, -1)}>−</button>
-                              <span className="stepper-value">{fmtCm(o.position)} cm</span>
-                              <button type="button" className="btn small"
+                                onClick={() => stepPosition(i, -1)} title="Déplacer vers la gauche" aria-label="Déplacer vers la gauche">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5m0 0l6-6m-6 6l6 6"/></svg>
+                              </button>
+                              <button type="button" className="btn small step-arrow"
                                 disabled={o.position + POSITION_STEP > positionMax(o) + 1e-9}
-                                onClick={() => stepPosition(i, 1)}>+</button>
+                                onClick={() => stepPosition(i, 1)} title="Déplacer vers la droite" aria-label="Déplacer vers la droite">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m0 0l-6-6m6 6l-6 6"/></svg>
+                              </button>
                             </div>
                           </Field>
                         </div>
+                      </div>
+                      <button className="icon-btn danger" onClick={() => removeOuverture(i)} title="Supprimer l'ouverture" aria-label="Supprimer l'ouverture">
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+                      </button>
                       </div>
                       {!validerOuverture(d, selectedFace, o) && (
                         <div className="field-error">
@@ -961,7 +1158,6 @@ export default function App() {
                     </div>
                     );
                   })}
-                  <button className="btn small" onClick={addOuverture}>+ Ajouter une ouverture</button>
                 </div>
               ) : (
                 <p style={{ fontSize: "0.85rem", color: "#78716c" }}>
@@ -971,33 +1167,37 @@ export default function App() {
             </>
           )}
 
-          {tab === "export" && (
-            <>
-              <div className="export-toolbar">
-                <p>
-                  Ce fichier JSON est le format d'échange : le script Python côté Archicad
-                  (API JSON officielle + Tapir) le lit et génère murs, toiture, plancher et ouvertures.
-                </p>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button className="btn small" onClick={copier}>Copier le JSON</button>
-                  <button className="btn primary small" onClick={telecharger}>Télécharger module.json</button>
-                  <button
-                    className="btn primary small"
-                    onClick={soumettre}
-                    disabled={submitting || !session?.loggedIn}
-                    title={session?.loggedIn ? "Avertir l'architecte (dev@baracca.fr) que ce dossier est prêt à être examiné" : "Connectez-vous pour soumettre"}
-                  >
-                    {submitting ? "Envoi…" : "Soumettre"}
-                  </button>
-                </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-title">Chiffrage estimatif</div>
+        <div className="card-body">
+          <div className="chiffrage-lines">
+            <div className="chiffrage-line"><span className="chiffrage-left"><span className="chiffrage-k">Murs</span><span className="chiffrage-surf">{fmtM2(surfaces.murs)}</span></span><span className="chiffrage-v">{fmtEur(tarifs.mur)} HT</span></div>
+            <p className="section-label carac-toggle" onClick={() => setChiffrageOpen((o) => !o)}>
+              <span className={"carac-arrow" + (chiffrageOpen ? " open" : "")}></span>
+              Détail par mur
+            </p>
+            {chiffrageOpen && surfaces.mursDetail.map((m) => (
+              <div className="chiffrage-line" key={m.key}>
+                <span className="chiffrage-left"><span className="chiffrage-k">{m.label}</span><span className="chiffrage-surf">{surfaceNom(m.surfaceId)} - {fmtM2(m.area)}</span></span>
+                <span className="chiffrage-right"><span className="chiffrage-v">{fmtEur(m.amount)} HT</span></span>
               </div>
-              <p style={{ fontSize: 13, margin: "0 0 12px" }}>
-                Tarif global indicatif du projet : <strong>{fmtEur(tarifs.total)}</strong>
-                <span style={{ color: "#78716c" }}>
-                  {" "}(modèle {fmtEur(tarifs.module)} + enveloppe {fmtEur(tarifs.mur + tarifs.plancher + tarifs.facade)}
-                  {" "}+ menuiseries {fmtEur(tarifs.menuiseries)} — tarifs du catalogue back-office)
-                </span>
-              </p>
+            ))}
+            <div className="chiffrage-line"><span className="chiffrage-left"><span className="chiffrage-k">Plancher</span><span className="chiffrage-surf">{fmtM2(surfaces.plancher)}</span></span><span className="chiffrage-v">{fmtEur(tarifs.plancher)} HT</span></div>
+            <div className="chiffrage-line"><span className="chiffrage-left"><span className="chiffrage-k">Toiture</span><span className="chiffrage-surf">{fmtM2(surfaces.toiture)}</span></span><span className="chiffrage-v">{fmtEur(tarifs.toiture)} HT</span></div>
+            <div className="chiffrage-line"><span className="chiffrage-left"><span className="chiffrage-k">Ouvrants ({surfaces.ouvrants})</span></span><span className="chiffrage-v">{fmtEur(tarifs.menuiseries)} HT</span></div>
+          </div>
+          <div className="chiffrage-total">
+            <div className="chiffrage-row"><span className="k">Coût estimatif</span><span className="v">{fmtEur(tarifs.total)} HT</span></div>
+            <div className="chiffrage-row"><span className="k">TVA (20 %)</span><span className="v">{fmtEur(tarifs.total * 0.20)}</span></div>
+            <div className="chiffrage-row total"><span className="k">Coût TTC</span><span className="v">{fmtEur(tarifs.total * 1.20)}</span></div>
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-title">Mes informations</div>
+        <div className="card-body">
               <p style={{ fontSize: 12, color: "#78716c", margin: "0 0 12px" }}>
                 « Soumettre » avertit l'architecte (dev@baracca.fr) que votre dossier est prêt à être
                 examiné : le fichier JSON est alors enregistré et récupérable dans le back-office
@@ -1008,8 +1208,8 @@ export default function App() {
                 <div className="account-box">
                   <div className="account-head">
                     <strong>Mes configurations</strong>
-                    <span className="account-user">
-                      {session.user.prenom} {session.user.nom} — {session.user.email}
+                    <span className="account-user" title="Login de connexion">
+                      {session.user.email}
                     </span>
                   </div>
                   <div className="save-row">
@@ -1056,9 +1256,18 @@ export default function App() {
               ) : null}
 
               {flash && <div className="field-error" style={{ marginBottom: 8, color: "#059669" }}>{flash}</div>}
-              <pre className="json">{json}</pre>
-            </>
-          )}
+              <div className="mesinfos-actions">
+                <button
+                  className="btn primary"
+                  onClick={soumettre}
+                  disabled={submitting || !session?.loggedIn}
+                  title={session?.loggedIn ? "Avertir l'architecte (dev@baracca.fr) que ce dossier est prêt à être examiné" : "Connectez-vous pour soumettre"}
+                >
+                  {submitting ? "Envoi…" : "Soumettre"}
+                </button>
+              </div>
+        </div>
+      </div>
         </div>
       </div>
 

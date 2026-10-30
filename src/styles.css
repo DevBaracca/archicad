@@ -2,7 +2,7 @@
    Baracca Configurateur — feuille de style autonome (aucune dépendance)
 ------------------------------------------------------------------ */
 :root {
-  --bg: #fafaf9;
+  --bg: #d6d3d1; /* fond de page plus foncé pour faire ressortir les zones (plan, élévation, réglages) */
   --card: #ffffff;
   --border: #e7e5e4;
   --text: #292524;
@@ -29,15 +29,45 @@ header.top p { margin: 4px 0 0; color: var(--muted); font-size: 0.85rem; }
 .badge { display: inline-block; padding: 5px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; color: #fff; background: var(--ok); }
 .badge.error { background: var(--err); }
 
-.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-.card + .card, .grid2 { margin-top: 20px; }
-.card-title { font-weight: 600; font-size: 0.95rem; padding: 14px 18px; border-bottom: 1px solid var(--border); }
-.card-body { padding: 18px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,0.04); overflow: hidden; }
+.card + .card { margin-top: 20px; }
+/* Haut des cartes : bande vert clair (#7A8A77), titre blanc un peu plus gros,
+   coins arrondis conservés (haut de la bande = haut de la carte) */
+.card-title {
+  font-weight: 600; font-size: 1.05rem; padding: 14px 18px;
+  background: #7A8A77; color: #fff;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
 
-/* tabs */
-.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+/* carte Réglages : 2 colonnes (titre + onglets + réglages à gauche, visuel à droite) */
+.reglage-grid { display: grid; grid-template-columns: minmax(0, 1fr) 172px; gap: 20px; align-items: start; }
+.reglage-visual-img {
+  width: 160px; height: 120px; /* 2x la vignette, sans tronquer, sans cadre */
+  object-fit: contain;
+  display: block;
+}
+.reglage-visual-empty {
+  width: 160px; height: 120px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); background: #fff;
+  border: 1px dashed var(--border); border-radius: 8px;
+}
+@media (max-width: 700px) { .reglage-grid { grid-template-columns: 1fr; } }
+.card-body { padding: 18px; }
+
+/* Mise en page : plan et élévation l'un sur l'autre à gauche, réglages à droite */
+.layout { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; align-items: start; }
+.layout-left { display: grid; gap: 20px; }
+.layout-left .card + .card { margin-top: 0; }
+/* colonne droite : réglages (onglets) puis zone Export en dessous */
+.layout-right { display: grid; gap: 20px; align-content: start; }
+.layout-right .card { margin-top: 0; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+/* tabs : onglets sur toute la largeur de la carte */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; width: 100%; }
+.tabs .tab-btn { flex: 1 1 0; }
 .tab-btn { padding: 8px 16px; border: 1px solid var(--border); background: #fff; border-radius: 8px; cursor: pointer; font-size: 0.85rem; color: var(--muted); }
 .tab-btn.active { background: var(--text); color: #fff; border-color: var(--text); }
 
@@ -66,6 +96,16 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .metric .k { font-size: 0.72rem; color: var(--muted); }
 .metric .v { font-size: 1.05rem; font-weight: 700; margin-top: 2px; }
 
+/* onglet module : nom en 2x plus gros + zone repliable */
+.field-module-name input { font-size: 1.8rem; font-weight: 700; padding: 10px 12px; }
+.carac-toggle { cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none; }
+.carac-arrow {
+  width: 9px; height: 9px; flex-shrink: 0;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg); transition: transform 0.15s;
+}
+.carac-arrow.open { transform: rotate(45deg); }
+
 /* onglet module : fiche en lecture seule + tarif */
 .section-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 4px 0 10px; }
 .spec { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 16px; margin-bottom: 4px; }
@@ -76,14 +116,34 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .metric.tarif .v { color: #92400e; }
 
 /* murs / ouvertures */
+/* bouton « + » : pastille verte, plus blanc (comme dans le back-office) */
+.btn-add {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px; border: none;
+  background: #5A6E57; color: #fff;
+  font-size: 1.1rem; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.btn-add:hover { background: #48594A; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px;
+  border: 1px solid #2563eb; background: #2563eb; color: #fff; cursor: pointer;
+}
+.icon-btn.danger { background: #dc2626; border-color: #dc2626; }
+.icon-btn.danger:hover { background: #b91c1c; border-color: #b91c1c; }
+/* chaque ouverture : infos à gauche, croix rouge de suppression à droite */
+.ouverture-main { display: flex; gap: 10px; align-items: flex-start; }
+.ouverture-main .menuiserie-row { flex: 1; min-width: 0; }
+.ouverture-main .icon-btn { flex-shrink: 0; margin-top: 2px; }
+.add-zone { border-style: dashed; }
 .face-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .menuiserie-row { display: flex; gap: 12px; align-items: flex-start; }
 .menuiserie-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); flex-shrink: 0; background: #fff; }
 
-/* position des ouvertures : stepper en cm (pas de saisie libre) */
+/* position des ouvertures : flèches gauche/droite (pas de saisie libre, position non affichée) */
 .stepper { display: flex; align-items: center; gap: 8px; }
-.stepper-value { min-width: 96px; text-align: center; font-weight: 600; font-size: 0.95rem; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: #fff; }
 .stepper .btn { min-width: 42px; }
+.step-arrow { display: inline-flex; align-items: center; justify-content: center; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .checkline { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; margin-bottom: 6px; }
 .ouverture { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; background: #fff; }
@@ -92,9 +152,34 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .field-error { color: var(--err); font-size: 0.75rem; margin-top: 6px; }
 hr.sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 
-/* export */
-.export-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.export-toolbar p { margin: 0; font-size: 0.78rem; color: var(--muted); max-width: 520px; }
+/* carte « Mes informations » : bouton Soumettre en bas */
+.mesinfos-actions { margin-top: 16px; display: flex; justify-content: flex-end; }
+.mesinfos-actions .btn { min-width: 160px; }
+
+/* chiffrage : lignes sans cadre, séparées par des traits ; label gris foncé (taille tarif),
+   surface en gris clair à côté du label, tarif à droite */
+.chiffrage-lines { margin: 4px 0 8px; }
+.chiffrage-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
+.chiffrage-line:first-child { border-top: none; padding-top: 0; }
+.chiffrage-left { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.chiffrage-right { display: flex; align-items: baseline; gap: 10px; }
+.chiffrage-k { color: #44403c; font-weight: 600; font-size: 0.95rem; }
+.chiffrage-surf { color: #a8a29e; font-size: 0.85rem; }
+.chiffrage-v { font-weight: 600; font-size: 0.95rem; white-space: nowrap; }
+
+/* carte « Chiffrage estimatif » : bande grise (plus foncée) en bas de carte */
+.chiffrage-total {
+  margin: 16px -18px -18px;
+  padding: 14px 18px;
+  background: #d6d3d1;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 9px 9px;
+}
+.chiffrage-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 3px 0; }
+.chiffrage-row .k { font-size: 0.85rem; font-weight: 600; color: var(--text); }
+.chiffrage-row .v { font-size: 0.95rem; font-weight: 600; color: var(--text); }
+.chiffrage-row.total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 8px; }
+.chiffrage-row.total .k, .chiffrage-row.total .v { font-size: 1.05rem; font-weight: 700; }
 
 /* espace client : configurations enregistrées */
 .account-box { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; background: #fff; }

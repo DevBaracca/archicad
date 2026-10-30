@@ -739,6 +739,67 @@ img, picture, video, canvas, svg {
   overflow: hidden;
 }
 
+/* Page configurateur : hero compact, titre redescendu sous le menu fixe
+   (header ~75 px -> padding-top 96 px), peu d'espace entre le titre et la suite */
+.hero-compact {
+  min-height: 0;
+  padding: 96px 0 var(--spacing-md);
+}
+
+/* Titre à gauche, infos de connexion à droite (même niveau) */
+.hero-compact .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.hero-side {
+  text-align: right;
+}
+
+.hero-user {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--gray);
+}
+
+.hero-user a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.hero-user-note {
+  margin: 6px 0 0;
+  font-size: var(--font-size-small);
+  color: var(--gray);
+  max-width: 460px;
+}
+
+.config-intro {
+  background: var(--white);
+  border: 1px solid var(--gray-border);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--box-shadow);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  margin-bottom: var(--spacing-lg);
+}
+
+.config-intro p {
+  margin: 0 0 var(--spacing-sm);
+}
+
+.config-intro p:last-child {
+  margin-bottom: 0;
+}
+
+.config-meta {
+  margin-top: var(--spacing-md);
+  font-size: var(--font-size-small);
+  color: var(--gray);
+}
+
 .hero-content {
   max-width: 650px;
   position: relative;

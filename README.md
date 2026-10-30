@@ -19,7 +19,10 @@ et `invest.baracca.fr`), dans lequel l'application React est intégrée :
 
 ```
 index.php                      Accueil (présentation du configurateur)
-configurateur.php              Page d'intégration de l'application (iframe) — réservée aux clients connectés
+configurateur.php              Page d'intégration de l'application (iframe) — réservée aux clients connectés.
+                                 Mise en page : hero compact, encart explicatif au-dessus de l'iframe ;
+                                 dans l'app, plan et élévation empilés à gauche, réglages à droite,
+                                 sur fond de page foncé.
 inscription.php                Création d'un compte client (accès au configurateur)
 connexion.php                  Connexion client (email = identifiant)
 deconnexion.php                Déconnexion client
@@ -122,17 +125,14 @@ puis remplacez `ARCHICAD_ADMIN_PASSWORD_HASH` dans `config.php`.
 5. Renommez `htaccess.txt` en `.htaccess` dans `configurateur/`
    (politique iframe) — voir section « Sécurité iframe » ci-dessous.
 
-## Traçage des configurations (optionnel)
+## Configurateur côté client : carte « Mes informations »
 
-Dans `src/App.jsx`, renseignez :
-
-```js
-const TRACE_URL = "/php/trace_module.php";
-```
-
-À chaque téléchargement du JSON, une copie sera envoyée en POST à cette
-URL. Le fichier `php/trace_module.php` fourni sauvegarde chaque
-configuration en JSON daté (et peut envoyer un e-mail à l'architecte).
+La colonne de droite contient la carte « Réglages » (onglets Module, Murs &
+ouvrages) et, en dessous, la carte « Mes informations » : tarif global,
+enregistrement des configurations (à côté de « Mes configurations », seul le
+login de connexion est affiché) et bouton « Soumettre » en bas de carte. Le
+fichier JSON n'y est pas affiché et les actions copier/télécharger ne sont
+possibles que depuis le back-office (soumissions).
 
 ## Catalogues du configurateur (back-office)
 
@@ -164,7 +164,7 @@ referme. Le contenu des pages admin est descendu de 20 px (menu fixe).
 - **Ouvrants** — baies vitrées, fenêtres et portes, avec visuel (image
   envoyée depuis le back-office, stockée dans `assets/images/catalogue/`),
   dimensions (largeur × hauteur), favori Archicad et tarif. Le client
-  choisit la menuiserie dans ce catalogue (onglet « Murs & ouvertures ») et
+  choisit l'ouvrant dans ce catalogue (onglet « Ouvrants ») et
   la positionne sur le mur par pas de 60 cm (flèches « − » / « + »,
   affichage en cm, minimum 7,8 cm — pas de saisie libre).
 
@@ -217,13 +217,16 @@ client le **tarif global** du projet au fur et à mesure, repris dans
 l'export JSON (`metriques.tarif`).
 
 Stockage : `data/catalogue/` (JSON, hors git, amorcé automatiquement au
-premier chargement avec les valeurs historiques du configurateur).
-L'application React lit les catalogues en lecture seule via
-`php/api_catalogue.php` (menuiseries, modules, enveloppe murs/planchers/
-surfaces/toitures, toitures) ; si l'API est indisponible, elle retombe sur
-les catalogues par défaut définis en tête de `src/App.jsx` (`MURS`,
-`PLANCHERS`, `FACADES`, `TOITURES`). La géométrie de toiture reste un
-vocabulaire fixe (`archicad_catalogue_toiture_types()` : monopente, deux
+premier chargement avec les valeurs historiques du configurateur), **un
+fichier par rubrique** : `menuiseries.json`, `modules.json`, `murs.json`,
+`planchers.json`, `surfaces.json`, `toitures.json` (structure
+`{"items": [...]}` ; l'ancien fichier unique `enveloppe.json` est éclaté
+automatiquement à la première lecture). L'application React lit les
+catalogues en lecture seule via `php/api_catalogue.php` (menuiseries,
+modules, murs/planchers/surfaces/toitures) ; si l'API est indisponible,
+elle retombe sur les catalogues par défaut définis en tête de `src/App.jsx`
+(`MURS`, `PLANCHERS`, `FACADES`, `TOITURES`). La géométrie de toiture reste
+un vocabulaire fixe (`archicad_catalogue_toiture_types()` : monopente, deux
 pentes, terrasse) — champ `type` des éléments de la rubrique Toitures.
 
 ## Schéma d'export JSON

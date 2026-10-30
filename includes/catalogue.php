@@ -1,10 +1,12 @@
 <?php
 /**
  * Baracca - Site archicad.baracca.fr
- * Catalogues du configurateur (data/catalogue/) : menuiseries (baies vitrées,
- * fenêtres, portes — avec visuel), modèles de modules (géométrie prédéfinie)
- * et enveloppe (murs, planchers, façades). Chaque élément porte un tarif,
- * additionné par le configurateur pour afficher le tarif global du projet.
+ * Catalogues du configurateur (data/catalogue/, un fichier JSON par rubrique :
+ * menuiseries.json, modules.json, murs.json, planchers.json, surfaces.json,
+ * toitures.json) : menuiseries (baies vitrées, fenêtres, portes — avec visuel),
+ * modèles de modules (géométrie prédéfinie), murs, planchers, surfaces et
+ * toitures. Chaque élément porte un tarif, additionné par le configurateur
+ * pour afficher le tarif global du projet.
  *
  * Gérés depuis le back-office (admin/configurateur.php), lus par
  * l'application React via php/api_catalogue.php. Au premier chargement,
@@ -13,14 +15,9 @@
 
 require_once __DIR__ . '/../config.php';
 
-// Kinds : menuiseries et modules ont leur fichier dédié ; murs, planchers,
-// surfaces (ex-"façades") et toitures sont les sous-catalogues du fichier
-// enveloppe.json.
-function archicad_catalogue_is_enveloppe_kind(string $kind): bool
-{
-    return in_array($kind, ['murs', 'planchers', 'facades', 'toitures'], true);
-}
-
+// Chaque kind a son propre fichier JSON dans data/catalogue/ :
+// menuiseries.json, modules.json, murs.json, planchers.json,
+// surfaces.json, toitures.json (structure {"items": [...]}).
 function archicad_catalogue_dir(): string
 {
     return ARCHICAD_DATA_DIR . '/catalogue';
@@ -28,8 +25,38 @@ function archicad_catalogue_dir(): string
 
 function archicad_catalogue_file(string $kind): string
 {
-    $file = archicad_catalogue_is_enveloppe_kind($kind) ? 'enveloppe' : $kind;
-    return archicad_catalogue_dir() . '/' . $file . '.json';
+    return archicad_catalogue_dir() . '/' . $kind . '.json';
+}
+
+/**
+ * Migration one-shot : l'ancien fichier unique enveloppe.json est éclaté en
+ * fichiers séparés (murs/planchers/surfaces/toitures), puis supprimé.
+ */
+function archicad_catalogue_migrate_enveloppe_file(): void
+{
+    $old = archicad_catalogue_dir() . '/enveloppe.json';
+    if (!is_file($old)) {
+        return;
+    }
+    $data = json_decode((string) file_get_contents($old), true);
+    if (is_array($data)) {
+        // Ancienne clé "facades" -> "surfaces"
+        if (isset($data['facades']) && !isset($data['surfaces'])) {
+            $data['surfaces'] = $data['facades'];
+            unset($data['facades']);
+        }
+        foreach (['murs', 'planchers', 'surfaces', 'toitures'] as $kind) {
+            $file = archicad_catalogue_dir() . '/' . $kind . '.json';
+            if (!is_file($file) && isset($data[$kind]) && is_array($data[$kind])) {
+                file_put_contents(
+                    $file,
+                    json_encode(['items' => array_values($data[$kind])], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+                    LOCK_EX
+                );
+            }
+        }
+    }
+    unlink($old);
 }
 
 // Dossier public des visuels du catalogue (servi par le serveur web)
@@ -69,31 +96,31 @@ function archicad_catalogue_defaults(string $kind): array
                 ['id' => 'porte-fenetre-180x215', 'nom' => 'Porte-fenêtre 1,80 × 2,15 m', 'type' => 'baie', 'largeur' => 1.80, 'hauteur' => 2.15, 'favori' => '', 'tarif' => 0, 'image' => '', 'created' => $today],
             ];
         case 'modules':
-            // Un modèle de module embarque les éléments d'enveloppe liés
-            // (mur, plancher, facade : id du catalogue enveloppe)
+            // Un modèle de module embarque les éléments liés
+            // (mur, plancher, facade : id des catalogues murs/planchers/surfaces)
             return [
-                ['id' => 'module-6x3', 'nom' => 'Module 6,00 × 3,00 m — h 2,80 m', 'longueur' => 6.0, 'largeur' => 3.0, 'hauteur' => 2.8, 'toiture' => 'monopente', 'pente' => 15, 'pignon' => true, 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
-                ['id' => 'module-9x36', 'nom' => 'Module 9,00 × 3,60 m — h 2,80 m', 'longueur' => 9.0, 'largeur' => 3.6, 'hauteur' => 2.8, 'toiture' => 'deuxpentes', 'pente' => 30, 'pignon' => true, 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
+                ['id' => 'module-6x3', 'nom' => 'Module 6,00 × 3,00 m — h 2,80 m', 'longueur' => 6.0, 'largeur' => 3.0, 'hauteur' => 2.8, 'toiture' => 'monopente', 'image' => '', 'pente' => 15, 'pignon' => true, 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
+                ['id' => 'module-9x36', 'nom' => 'Module 9,00 × 3,60 m — h 2,80 m', 'longueur' => 9.0, 'largeur' => 3.6, 'hauteur' => 2.8, 'toiture' => 'deuxpentes', 'image' => '', 'pente' => 30, 'pignon' => true, 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
             ];
         case 'murs':
             // favori = nom du favori Archicad à utiliser ('' = aucun, à
             // renseigner depuis le back-office) — repris dans l'export JSON.
-            // surface = id d'une surface (sous-catalogue facades) dont le
+            // surface = id d'une surface (sous-catalogue "surfaces") dont le
             // visuel est utilisé dans les élévations.
             return [
-                ['id' => 'clt90', 'nom' => 'Mur CLT 90 mm', 'epaisseur' => 0.09, 'surface' => 'bardage_bois', 'rgb' => [140, 107, 89], 'favori' => '', 'tarif' => 0, 'created' => $today],
-                ['id' => 'clt140', 'nom' => 'Mur CLT 140 mm', 'epaisseur' => 0.14, 'surface' => 'bardage_bois', 'rgb' => [140, 107, 89], 'favori' => '', 'tarif' => 0, 'created' => $today],
-                ['id' => 'ossature160', 'nom' => 'Ossature bois 160 mm', 'epaisseur' => 0.16, 'surface' => 'enduit', 'rgb' => [194, 169, 133], 'favori' => '', 'tarif' => 0, 'created' => $today],
-                ['id' => 'bloc200', 'nom' => 'Bloc béton 200 mm', 'epaisseur' => 0.20, 'surface' => 'brique', 'rgb' => [158, 158, 158], 'favori' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'clt90', 'nom' => 'Mur CLT 90 mm', 'epaisseur' => 0.09, 'image' => '', 'surface' => 'bardage_bois', 'rgb' => [140, 107, 89], 'favori' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'clt140', 'nom' => 'Mur CLT 140 mm', 'epaisseur' => 0.14, 'image' => '', 'surface' => 'bardage_bois', 'rgb' => [140, 107, 89], 'favori' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'ossature160', 'nom' => 'Ossature bois 160 mm', 'epaisseur' => 0.16, 'image' => '', 'surface' => 'enduit', 'rgb' => [194, 169, 133], 'favori' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'bloc200', 'nom' => 'Bloc béton 200 mm', 'epaisseur' => 0.20, 'image' => '', 'surface' => 'brique', 'rgb' => [158, 158, 158], 'favori' => '', 'tarif' => 0, 'created' => $today],
             ];
         case 'planchers':
             // épaisseur (m) du plancher, affichée en élévation et exportée
             return [
-                ['id' => 'clt_dalle', 'nom' => 'Dalle CLT + chape', 'epaisseur' => 0.30, 'favori' => '', 'tarif' => 0, 'created' => $today],
-                ['id' => 'plancher_bois', 'nom' => 'Plancher bois sur lambourdes', 'epaisseur' => 0.24, 'favori' => '', 'tarif' => 0, 'created' => $today],
-                ['id' => 'dalle_beton', 'nom' => 'Dalle béton', 'epaisseur' => 0.20, 'favori' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'clt_dalle', 'nom' => 'Dalle CLT + chape', 'epaisseur' => 0.30, 'image' => '', 'favori' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'plancher_bois', 'nom' => 'Plancher bois sur lambourdes', 'epaisseur' => 0.24, 'image' => '', 'favori' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'dalle_beton', 'nom' => 'Dalle béton', 'epaisseur' => 0.20, 'image' => '', 'favori' => '', 'tarif' => 0, 'created' => $today],
             ];
-        case 'facades':
+        case 'surfaces':
             // Surfaces (habillage extérieur) : visuel téléversé depuis le
             // back-office (image), utilisé dans les élévations. Pas de favori.
             return [
@@ -107,16 +134,16 @@ function archicad_catalogue_defaults(string $kind): array
             // (monopente/deux pentes/terrasse), épaisseur (m) dessinée au-dessus
             // de la ligne directrice en élévation, surface, couleur, favori.
             return [
-                ['id' => 'toit-monopente', 'nom' => 'Toiture monopente', 'type' => 'monopente', 'epaisseur' => 0.30, 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture monopente', 'tarif' => 0, 'created' => $today],
-                ['id' => 'toit-deuxpentes', 'nom' => 'Toiture deux pentes', 'type' => 'deuxpentes', 'epaisseur' => 0.30, 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture deux pentes', 'tarif' => 0, 'created' => $today],
-                ['id' => 'toit-terrasse', 'nom' => 'Terrasse plate', 'type' => 'terrasse', 'epaisseur' => 0.25, 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture terrasse', 'tarif' => 0, 'created' => $today],
+                ['id' => 'toit-monopente', 'nom' => 'Toiture monopente', 'type' => 'monopente', 'epaisseur' => 0.30, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture monopente', 'tarif' => 0, 'created' => $today],
+                ['id' => 'toit-deuxpentes', 'nom' => 'Toiture deux pentes', 'type' => 'deuxpentes', 'epaisseur' => 0.30, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture deux pentes', 'tarif' => 0, 'created' => $today],
+                ['id' => 'toit-terrasse', 'nom' => 'Terrasse plate', 'type' => 'terrasse', 'epaisseur' => 0.25, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture terrasse', 'tarif' => 0, 'created' => $today],
             ];
     }
     return [];
 }
 
 /**
- * Rubrique « Toitures » du catalogue enveloppe (éléments complets : géométrie,
+ * Rubrique « Toitures » (toitures.json — éléments complets : géométrie,
  * épaisseur, surface, couleur, favori Archicad, tarif). Un modèle de module
  * référence l'id d'un élément de cette rubrique.
  */
@@ -143,83 +170,70 @@ function archicad_save_catalogue(string $kind, array $items): bool
     if (!is_dir(archicad_catalogue_dir())) {
         mkdir(archicad_catalogue_dir(), 0775, true);
     }
+    archicad_catalogue_migrate_enveloppe_file();
     $file = archicad_catalogue_file($kind);
-    if (archicad_catalogue_is_enveloppe_kind($kind)) {
-        if (!is_file($file)) {
-            // Amorce les sous-catalogues d'un coup à la première écriture
-            $data = [
-                'murs' => archicad_catalogue_defaults('murs'),
-                'planchers' => archicad_catalogue_defaults('planchers'),
-                'facades' => archicad_catalogue_defaults('facades'),
-                'toitures' => archicad_catalogue_defaults('toitures'),
-            ];
-        } else {
-            $data = json_decode((string) file_get_contents($file), true);
-            if (!is_array($data)) {
-                $data = [];
-            }
-        }
-        $data[$kind] = array_values($items);
-    } else {
-        $data = ['items' => array_values($items)];
-    }
+    $data = ['items' => array_values($items)];
     return file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX) !== false;
 }
 
 function archicad_load_catalogue(string $kind): array
 {
+    archicad_catalogue_migrate_enveloppe_file();
     if (!is_file(archicad_catalogue_file($kind))) {
         // Premier chargement : amorce le catalogue avec les valeurs par défaut
-        // (pour l'enveloppe, les trois sous-catalogues sont amorcés d'un coup)
         archicad_save_catalogue($kind, archicad_catalogue_defaults($kind));
     }
     $data = json_decode((string) file_get_contents(archicad_catalogue_file($kind)), true);
     if (!is_array($data)) {
         return [];
     }
-    if (archicad_catalogue_is_enveloppe_kind($kind)) {
-        $items = is_array($data[$kind] ?? null) ? $data[$kind] : [];
-        // Première surface du même fichier (sans appel récursif)
-        $firstSurface = '';
-        if ($kind === 'murs' || $kind === 'toitures') {
-            $surfaces = is_array($data['facades'] ?? null) ? $data['facades'] : [];
-            $firstSurface = (string) ($surfaces[0]['id'] ?? '');
+    $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+    // Rétro-compatibilité : favori Archicad ('' = aucun) et visuel ('')
+    foreach ($items as $i => $item) {
+        if (!array_key_exists('favori', $item)) {
+            $items[$i]['favori'] = '';
         }
+        if (!array_key_exists('image', $item)) {
+            $items[$i]['image'] = '';
+        }
+    }
+    if ($kind === 'murs' || $kind === 'toitures') {
+        // Surface par défaut = première surface du catalogue surfaces.json
+        $firstSurface = (string) (archicad_load_catalogue('surfaces')[0]['id'] ?? '');
         foreach ($items as $i => $item) {
-            // Rétro-compatibilité : favori Archicad ('' = aucun), image (''),
-            // surface par défaut, épaisseur en m (planchers 20 cm, toitures 30 cm)
-            if (!array_key_exists('favori', $item)) {
-                $items[$i]['favori'] = '';
-            }
-            if (!array_key_exists('image', $item)) {
-                $items[$i]['image'] = '';
-            }
-            if (($kind === 'murs' || $kind === 'toitures') && empty($item['surface'])) {
+            if (empty($item['surface'])) {
                 $items[$i]['surface'] = $firstSurface;
             }
-            if ($kind === 'planchers' && empty($item['epaisseur'])) {
-                $items[$i]['epaisseur'] = 0.20;
+        }
+    }
+    if ($kind === 'murs') {
+        foreach ($items as $i => $item) {
+            if (empty($item['epaisseur'])) {
+                $items[$i]['epaisseur'] = 0.14;
             }
-            if ($kind === 'toitures') {
-                if (empty($item['type'])) {
-                    $items[$i]['type'] = 'monopente';
-                }
-                if (empty($item['epaisseur'])) {
-                    $items[$i]['epaisseur'] = 0.30;
-                }
-                if (empty($item['rgb'])) {
-                    $items[$i]['rgb'] = [120, 113, 108];
-                }
+            if (empty($item['rgb'])) {
+                $items[$i]['rgb'] = [158, 158, 158];
             }
         }
-        return $items;
     }
-    $items = is_array($data['items'] ?? null) ? $data['items'] : [];
-    if ($kind === 'menuiseries') {
-        // Rétro-compatibilité : favori Archicad ('' = aucun)
+    if ($kind === 'planchers') {
+        // Épaisseur en m (défaut 20 cm)
         foreach ($items as $i => $item) {
-            if (!array_key_exists('favori', $item)) {
-                $items[$i]['favori'] = '';
+            if (empty($item['epaisseur'])) {
+                $items[$i]['epaisseur'] = 0.20;
+            }
+        }
+    }
+    if ($kind === 'toitures') {
+        foreach ($items as $i => $item) {
+            if (empty($item['type'])) {
+                $items[$i]['type'] = 'monopente';
+            }
+            if (empty($item['epaisseur'])) {
+                $items[$i]['epaisseur'] = 0.30;
+            }
+            if (empty($item['rgb'])) {
+                $items[$i]['rgb'] = [120, 113, 108];
             }
         }
     }
@@ -229,7 +243,7 @@ function archicad_load_catalogue(string $kind): array
         $refs = [
             'mur' => archicad_load_catalogue('murs'),
             'plancher' => archicad_load_catalogue('planchers'),
-            'facade' => archicad_load_catalogue('facades'),
+            'facade' => archicad_load_catalogue('surfaces'),
         ];
         foreach ($items as $i => $item) {
             foreach ($refs as $key => $list) {
@@ -323,7 +337,7 @@ function archicad_catalogue_total_items(): int
         + count(archicad_load_catalogue('modules'))
         + count(archicad_load_catalogue('murs'))
         + count(archicad_load_catalogue('planchers'))
-        + count(archicad_load_catalogue('facades'))
+        + count(archicad_load_catalogue('surfaces'))
         + count(archicad_load_catalogue('toitures'));
 }
 

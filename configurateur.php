@@ -25,20 +25,35 @@ $pageDescription = 'Configurateur de modules Baracca : définissez dimensions, t
 include 'includes/head.html';
 ?>
 
-  <!-- Hero Section -->
-  <section class="hero" style="min-height: 50vh;">
+  <!-- Hero Section (compact : le configurateur remonte sous le titre) -->
+  <section class="hero hero-compact">
     <div class="container">
       <div class="hero-content fade-in">
         <h1>Configurateur de modules</h1>
         <p class="hero-subtitle">Concevez votre module sur mesure et exportez le fichier JSON pour Archicad.</p>
       </div>
+      <?php if ($isLoggedIn): ?>
+        <div class="hero-side fade-in">
+          <p class="hero-user">
+            Connecté en tant que <strong><?= htmlspecialchars(trim(($user['prenom'] ?? '') . ' ' . ($user['nom'] ?? ''))) ?></strong><br>
+            <a href="compte.php">Mon compte</a> — <a href="deconnexion.php">Se déconnecter</a>
+          </p>
+          <p class="hero-user-note">
+            Avec votre compte client, vous pouvez enregistrer vos configurations pour les reprendre
+            plus tard (onglet « Export JSON ») et les soumettre à Baracca via le bouton « Soumettre ».
+            À défaut, aucune donnée n'est transmise, à l'exception de l'adresse e-mail si vous vous
+            inscrivez à la newsletter en pied de page.
+          </p>
+        </div>
+      <?php endif; ?>
     </div>
   </section>
 
   <!-- Configurateur -->
-  <section class="section">
+  <section class="section" style="padding-top: var(--spacing-md);">
     <div class="container">
-      <div class="fade-in">
+      <!-- Encart explicatif, juste au-dessus du configurateur -->
+      <div class="config-intro fade-in">
         <p>
           Le configurateur ci-dessous fonctionne directement dans votre navigateur :
           réglez les dimensions, la toiture, les murs et les ouvertures, visualisez le plan
@@ -53,26 +68,16 @@ include 'includes/head.html';
       </div>
 
       <?php if ($isLoggedIn): ?>
-        <p class="fade-in" style="margin-top: var(--spacing-xl); font-size: var(--font-size-small); color: var(--gray);">
-          Connecté en tant que <strong><?= htmlspecialchars(trim(($user['prenom'] ?? '') . ' ' . ($user['nom'] ?? ''))) ?></strong>
-          — <a href="compte.php">Mon compte</a> — <a href="deconnexion.php">Se déconnecter</a>
-        </p>
-
-        <div class="fade-in" style="margin-top: var(--spacing-md);">
+        <div class="fade-in">
           <iframe
+            id="configurateur-frame"
             src="/configurateur/<?= $configId !== '' ? '?config=' . urlencode($configId) : '' ?>"
-            width="100%" height="950"
+            width="100%" height="1400"
             style="border:0; border-radius:12px; box-shadow: var(--box-shadow-xl);"
             title="Configurateur de modules Baracca">
           </iframe>
         </div>
 
-        <p class="fade-in" style="margin-top: var(--spacing-md); font-size: var(--font-size-small); color: var(--gray);">
-          Le configurateur s'exécute dans votre navigateur. Avec votre compte client, vous pouvez
-          enregistrer vos configurations pour les reprendre plus tard (onglet « Export JSON ») et les
-          soumettre à Baracca via le bouton « Soumettre ». À défaut, aucune donnée n'est transmise,
-          à l'exception de l'adresse e-mail si vous vous inscrivez à la newsletter en pied de page.
-        </p>
       <?php else: ?>
         <div class="fade-in" style="margin-top: var(--spacing-xl);">
           <div class="auth-card auth-card-narrow auth-card-center">
@@ -92,5 +97,37 @@ include 'includes/head.html';
       <?php endif; ?>
     </div>
   </section>
+
+  <script>
+    // Iframe adaptative : hauteur = hauteur du contenu de l'app React
+    // (grandit ET rétrécit selon les onglets / zones ouvertes) -> plus de scrolling
+    (function () {
+      var frame = document.getElementById('configurateur-frame');
+      if (!frame) return;
+      var last = 0;
+      function fit() {
+        try {
+          var doc = frame.contentDocument;
+          if (!doc || !doc.body) return;
+          var h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+          var next = Math.max(600, h + 16); // 600 px mini
+          if (Math.abs(next - last) > 2) { frame.height = next; last = next; }
+        } catch (e) { /* cross-origin : on garde la hauteur fixe */ }
+      }
+      frame.addEventListener('load', function () {
+        fit();
+        try {
+          if (window.ResizeObserver) {
+            var ro = new ResizeObserver(fit);
+            ro.observe(frame.contentDocument.body);
+            ro.observe(frame.contentDocument.documentElement);
+          } else {
+            setInterval(fit, 400);
+          }
+        } catch (e) { setInterval(fit, 400); }
+      });
+      window.addEventListener('resize', fit);
+    })();
+  </script>
 
 <?php include 'includes/footer.php'; ?>

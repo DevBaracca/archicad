@@ -323,6 +323,35 @@
   padding: 0;
 }
 
+/* ----- Mise en forme des boîtes (modales) ----- */
+/* Visuel en haut à gauche, 2x la vignette de liste (64x48 -> 128x96) */
+.modal-visual-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-md);
+}
+
+.modal-visual-img {
+  width: 128px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--gray-border);
+}
+
+/* Champs regroupés sur une même ligne dans les modales */
+.modal-row {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.modal-row .admin-form-row {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ----- Bouton « + » à côté d'un titre de rubrique ----- */
 .btn-add {
   display: inline-flex;
