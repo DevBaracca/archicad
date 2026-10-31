@@ -2,11 +2,12 @@
 /**
  * Baracca - Site archicad.baracca.fr
  * Catalogues du configurateur (data/catalogue/, un fichier JSON par rubrique :
- * menuiseries.json, modules.json, formes.json, charpentes.json, murs.json,
- * planchers.json, surfaces.json, toitures.json) : menuiseries (baies vitrées,
- * fenêtres, portes — avec visuel), modèles de modules (géométrie prédéfinie),
- * formes de toiture (pente, pignon), charpentes, murs, planchers, surfaces et
- * toitures. Chaque élément porte un tarif, additionné par le configurateur
+ * menuiseries.json, modules.json, isolation.json, formes.json, charpentes.json,
+ * murs.json, planchers.json, surfaces.json, toitures.json) : menuiseries (baies
+ * vitrées, fenêtres, portes — avec visuel), modèles de modules (géométrie
+ * prédéfinie uniquement), isolations (type de mur + plancher + toiture),
+ * formes de toiture (géométrie, pentes), charpentes, murs, planchers, surfaces
+ * et toitures. Chaque élément porte un tarif, additionné par le configurateur
  * pour afficher le tarif global du projet.
  *
  * Gérés depuis le back-office (admin/configurateur.php), lus par
@@ -17,8 +18,8 @@
 require_once __DIR__ . '/../config.php';
 
 // Chaque kind a son propre fichier JSON dans data/catalogue/ :
-// menuiseries.json, modules.json, formes.json, charpentes.json, murs.json,
-// planchers.json, surfaces.json, toitures.json (structure {"items": [...]}).
+// menuiseries.json, modules.json, isolation.json, formes.json, charpentes.json,
+// murs.json, planchers.json, surfaces.json, toitures.json (structure {"items": [...]}).
 function archicad_catalogue_dir(): string
 {
     return ARCHICAD_DATA_DIR . '/catalogue';
@@ -58,6 +59,45 @@ function archicad_catalogue_migrate_enveloppe_file(): void
         }
     }
     unlink($old);
+}
+
+/**
+ * Migration one-shot : les anciens modèles de modules embarquaient mur /
+ * plancher / toiture (+ forme). Ces références sont reprises dans une
+ * isolation « standard » (isolation.json) avant d'être retirées des modules :
+ * un module ne garde plus que sa géométrie, l'enveloppe et la forme de
+ * toiture sont choisies côté client (onglets Isolation et Formes).
+ */
+function archicad_catalogue_migrate_isolation_from_modules(): void
+{
+    $isoFile = archicad_catalogue_file('isolation');
+    if (is_file($isoFile)) {
+        $data = json_decode((string) file_get_contents($isoFile), true);
+        if (is_array($data) && count($data['items'] ?? []) > 0) {
+            return; // rubrique isolation déjà renseignée
+        }
+    }
+    $modFile = archicad_catalogue_file('modules');
+    if (!is_file($modFile)) {
+        return;
+    }
+    $mods = json_decode((string) file_get_contents($modFile), true);
+    foreach (($mods['items'] ?? []) as $m) {
+        if (!empty($m['mur']) || !empty($m['plancher']) || !empty($m['toiture'])) {
+            archicad_save_catalogue('isolation', [[
+                'id' => 'isolation-standard',
+                'nom' => 'Isolation standard',
+                'mur' => (string) ($m['mur'] ?? ''),
+                'plancher' => (string) ($m['plancher'] ?? ''),
+                'toiture' => (string) ($m['toiture'] ?? ''),
+                'image' => '',
+                'favori' => '',
+                'created' => date('Y-m-d'),
+                'updated' => date('Y-m-d H:i:s'),
+            ]]);
+            return;
+        }
+    }
 }
 
 // Dossier public des visuels du catalogue (servi par le serveur web)
@@ -113,13 +153,23 @@ function archicad_catalogue_defaults(string $kind): array
             return [
                 ['id' => 'charpente-tradi', 'nom' => 'Charpente traditionnelle', 'epaisseur' => 0.20, 'image' => '', 'rgb' => [140, 107, 89], 'favori' => '', 'tarif' => 0, 'created' => $today],
             ];
-        case 'modules':
-            // Un modèle de module embarque les éléments liés
-            // (forme, mur, plancher, facade : id des catalogues formes/murs/
-            // planchers/surfaces) ainsi que la toiture (rubrique toitures)
+        case 'isolation':
+            // Isolation : type de mur, de plancher et de toiture (références
+            // vers les catalogues murs / planchers / toitures), choisie côté
+            // client (onglet « Isolation » du configurateur)
+            $murs = archicad_load_catalogue('murs');
+            $planchers = archicad_load_catalogue('planchers');
+            $toitures = archicad_load_catalogue('toitures');
             return [
-                ['id' => 'module-6x3', 'nom' => 'Module 6,00 × 3,00 m — h 2,80 m', 'longueur' => 6.0, 'largeur' => 3.0, 'hauteur' => 2.8, 'forme' => 'forme-monopente-15', 'toiture' => 'toit-monopente', 'image' => '', 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
-                ['id' => 'module-9x36', 'nom' => 'Module 9,00 × 3,60 m — h 2,80 m', 'longueur' => 9.0, 'largeur' => 3.6, 'hauteur' => 2.8, 'forme' => 'forme-deuxpentes-30', 'toiture' => 'toit-deuxpentes', 'image' => '', 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
+                ['id' => 'isolation-standard', 'nom' => 'Isolation standard', 'mur' => (string) ($murs[0]['id'] ?? ''), 'plancher' => (string) ($planchers[0]['id'] ?? ''), 'toiture' => (string) ($toitures[0]['id'] ?? ''), 'image' => '', 'favori' => '', 'created' => $today],
+            ];
+        case 'modules':
+            // Un modèle de module ne définit plus que sa géométrie (longueur,
+            // largeur, hauteur sous plafond) + visuel — l'isolation, la forme de
+            // toiture et l'enveloppe sont choisies côté client
+            return [
+                ['id' => 'module-6x3', 'nom' => 'Module 6,00 × 3,00 m — h 2,80 m', 'longueur' => 6.0, 'largeur' => 3.0, 'hauteur' => 2.8, 'image' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'module-9x36', 'nom' => 'Module 9,00 × 3,60 m — h 2,80 m', 'longueur' => 9.0, 'largeur' => 3.6, 'hauteur' => 2.8, 'image' => '', 'tarif' => 0, 'created' => $today],
             ];
         case 'murs':
             // favori = nom du favori Archicad à utiliser ('' = aucun, à
@@ -211,6 +261,7 @@ function archicad_save_catalogue(string $kind, array $items): bool
 function archicad_load_catalogue(string $kind): array
 {
     archicad_catalogue_migrate_enveloppe_file();
+    archicad_catalogue_migrate_isolation_from_modules();
     if (!is_file(archicad_catalogue_file($kind))) {
         // Premier chargement : amorce le catalogue avec les valeurs par défaut
         archicad_save_catalogue($kind, archicad_catalogue_defaults($kind));
@@ -314,71 +365,34 @@ function archicad_load_catalogue(string $kind): array
             }
         }
     }
-    if ($kind === 'modules') {
-        // Rétro-compatibilité : un modèle embarque les éléments d'enveloppe
-        // (mur, plancher, facade) — à défaut, le premier de chaque catalogue
+    if ($kind === 'isolation') {
+        // Références valides vers murs / planchers / toitures (à défaut le
+        // premier élément de chaque catalogue)
         $refs = [
-            'mur' => archicad_load_catalogue('murs'),
-            'plancher' => archicad_load_catalogue('planchers'),
-            'facade' => archicad_load_catalogue('surfaces'),
+            'mur' => ['murs', archicad_load_catalogue('murs')],
+            'plancher' => ['planchers', archicad_load_catalogue('planchers')],
+            'toiture' => ['toitures', archicad_load_catalogue('toitures')],
         ];
+        foreach ($items as $i => $item) {
+            foreach ($refs as $key => [$kindRef, $list]) {
+                if (empty($item[$key]) || archicad_catalogue_find($kindRef, (string) $item[$key]) === null) {
+                    $items[$i][$key] = (string) ($list[0]['id'] ?? '');
+                }
+            }
+        }
+    }
+    if ($kind === 'modules') {
+        // Migration : un module ne garde que sa géométrie (nom, longueur,
+        // largeur, hauteur, visuel) — forme / enveloppe / pente / pignon sont
+        // désormais choisis côté client (onglets Isolation et Formes) ; les
+        // anciennes références ont été reprises dans la rubrique isolation
         $changedModules = false;
         foreach ($items as $i => $item) {
-            foreach ($refs as $key => $list) {
-                if (empty($item[$key]) && isset($list[0]['id'])) {
-                    $items[$i][$key] = (string) $list[0]['id'];
+            foreach (['forme', 'mur', 'plancher', 'toiture', 'facade', 'pente', 'pignon'] as $k) {
+                if (array_key_exists($k, $items[$i])) {
+                    unset($items[$i][$k]);
+                    $changedModules = true;
                 }
-            }
-            // Migration : la pente / le pignon d'un ancien modèle sont repris
-            // dans une forme du catalogue « formes » (créée si besoin), référencée
-            // par le champ « forme » ; pente/pignon restent en base (dénormalisés)
-            if (empty($item['forme'])) {
-                $pente = (int) round((float) ($item['pente'] ?? 15));
-                $pignon = !empty($item['pignon']);
-                $formes = archicad_load_catalogue('formes');
-                $found = null;
-                foreach ($formes as $f) {
-                    if ((int) round((float) ($f['pente'] ?? 0)) === $pente && !empty($f['pignon']) === $pignon) {
-                        $found = $f;
-                        break;
-                    }
-                }
-                if ($found === null) {
-                    $found = archicad_catalogue_upsert('formes', [
-                        'nom' => 'Pente ' . $pente . '°' . ($pignon ? ' — pignon' : ''),
-                        'geometrie' => $pignon ? 'deuxpentes' : 'monopente',
-                        'pente' => $pente,
-                        'pente1' => $pente,
-                        'pente2' => $pente,
-                        'pignon' => $pignon,
-                    ]);
-                }
-                $items[$i]['forme'] = (string) $found['id'];
-                // pente / pignon dénormalisés depuis la forme référencée
-                $items[$i]['pente'] = (int) round((float) ($found['pente1'] ?? $found['pente'] ?? $pente));
-                $items[$i]['pignon'] = ($found['geometrie'] ?? '') === 'deuxpentes';
-                $changedModules = true;
-            }
-            // La toiture du modèle référence désormais la rubrique toitures :
-            // un ancien id de vocabulaire géométrique (monopente, ...) est
-            // traduit vers le premier élément de toiture de ce type
-            $toitures = archicad_load_catalogue('toitures');
-            $toitureOk = false;
-            foreach ($toitures as $t) {
-                if (($t['id'] ?? '') === ($item['toiture'] ?? '')) {
-                    $toitureOk = true;
-                    break;
-                }
-            }
-            if (!$toitureOk) {
-                $found = null;
-                foreach ($toitures as $t) {
-                    if (($t['type'] ?? '') === ($item['toiture'] ?? '')) {
-                        $found = $t;
-                        break;
-                    }
-                }
-                $items[$i]['toiture'] = (string) (($found ?? $toitures[0] ?? [])['id'] ?? 'monopente');
             }
         }
         if ($changedModules) {
@@ -446,6 +460,7 @@ function archicad_catalogue_total_items(): int
 {
     return count(archicad_load_catalogue('menuiseries'))
         + count(archicad_load_catalogue('modules'))
+        + count(archicad_load_catalogue('isolation'))
         + count(archicad_load_catalogue('formes'))
         + count(archicad_load_catalogue('charpentes'))
         + count(archicad_load_catalogue('murs'))

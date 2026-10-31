@@ -16,6 +16,7 @@ echo json_encode([
     'catalogue' => [
         'menuiseries' => archicad_load_catalogue('menuiseries'),
         'modules' => archicad_load_catalogue('modules'),
+        'isolation' => archicad_load_catalogue('isolation'),
         'formes' => archicad_load_catalogue('formes'),
         'charpentes' => archicad_load_catalogue('charpentes'),
         'enveloppe' => [

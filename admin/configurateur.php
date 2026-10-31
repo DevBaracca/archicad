@@ -3,10 +3,10 @@
  * Baracca - Back-office (archicad.baracca.fr)
  * Gestion des catalogues du configurateur : menuiseries (baies vitrées,
  * fenêtres, portes — avec visuel et référence Archicad), modèles de modules
- * (géométrie prédéfinie + forme de toiture et éléments d'enveloppe liés),
- * formes de toiture (pente, pignon), charpentes et enveloppe (murs, planchers,
- * surfaces, toitures). Chaque élément porte un tarif ; le configurateur en
- * calcule le tarif global du projet.
+ * (géométrie prédéfinie uniquement), isolations (type de mur + plancher +
+ * toiture), formes de toiture (géométrie, pentes), charpentes et enveloppe
+ * (murs, planchers, surfaces, toitures). Chaque élément porte un tarif ;
+ * le configurateur en calcule le tarif global du projet.
  *
  * L'ajout / la modification d'un élément se fait dans une boîte (modale) :
  * bouton « + » à côté du titre de la rubrique, crayon pour modifier,
@@ -19,13 +19,13 @@ require_once __DIR__ . '/../includes/catalogue.php';
 archicad_admin_require_auth();
 
 $section = (string) ($_GET['section'] ?? 'modules');
-// Onglets : Modules, Formes, Charpentes, Murs, Planchers, Toitures, Ouvrants, Surfaces
+// Onglets : Modules, Isolation, Formes, Charpentes, Murs, Planchers, Toitures, Ouvrants, Surfaces
 // (l'ancien onglet « enveloppe » est éclaté en sous-onglets)
 if ($section === 'enveloppe') {
     $sous0 = (string) ($_GET['sous'] ?? '');
     $section = in_array($sous0, ['murs', 'planchers', 'toitures', 'surfaces'], true) ? $sous0 : 'murs';
 }
-if (!in_array($section, ['modules', 'formes', 'charpentes', 'murs', 'planchers', 'toitures', 'menuiseries', 'surfaces'], true)) {
+if (!in_array($section, ['modules', 'isolation', 'formes', 'charpentes', 'murs', 'planchers', 'toitures', 'menuiseries', 'surfaces'], true)) {
     $section = 'modules';
 }
 
@@ -197,7 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         cat_redirect('menuiseries', 'deleted');
     }
 
-    // ----- Modèles de modules -----
+    // ----- Modèles de modules (géométrie uniquement) -----
     if ($action === 'save_module') {
         $id = trim((string) ($_POST['id'] ?? ''));
         $nom = trim((string) ($_POST['nom'] ?? ''));
@@ -205,50 +205,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $longueur = round(cat_num('longueur') / 100, 3);
         $largeur = round(cat_num('largeur') / 100, 3);
         $hauteur = round(cat_num('hauteur') / 100, 3);
-        // Toiture : élément de la rubrique « Toitures » du catalogue enveloppe
-        $toiture = (string) ($_POST['toiture'] ?? '');
-        $toitureList = archicad_load_catalogue('toitures');
-        if (!in_array($toiture, array_column($toitureList, 'id'), true)) {
-            $toiture = (string) ($toitureList[0]['id'] ?? '');
-        }
-        // Forme de toiture : élément de la rubrique « Formes » (pente + pignon)
-        $forme = (string) ($_POST['forme'] ?? '');
-        $formesList = archicad_load_catalogue('formes');
-        if (!in_array($forme, array_column($formesList, 'id'), true)) {
-            $forme = (string) ($formesList[0]['id'] ?? '');
-        }
-        $formeItem = archicad_catalogue_find('formes', $forme);
         if ($nom === '' || $longueur <= 0 || $largeur <= 0 || $hauteur <= 0) {
             cat_redirect('modules', 'invalid');
         }
-        $formePente = (int) round((float) ($formeItem['pente1'] ?? $formeItem['pente'] ?? 15));
-        $formePignon = ($formeItem['geometrie'] ?? '') === 'deuxpentes';
-        // Éléments d'enveloppe liés au modèle (ids du catalogue enveloppe,
-        // à défaut le premier élément de chaque sous-catalogue)
-        $envRef = function (string $posted, string $kind, array $list): string {
-            $id = (string) $posted;
-            if ($id === '' || archicad_catalogue_find($kind, $id) === null) {
-                $id = (string) ($list[0]['id'] ?? '');
-            }
-            return $id;
-        };
-        $murId = $envRef((string) ($_POST['mur'] ?? ''), 'murs', archicad_load_catalogue('murs'));
-        $plancherId = $envRef((string) ($_POST['plancher'] ?? ''), 'planchers', archicad_load_catalogue('planchers'));
-        // Enveloppe liée au modèle : mur, plancher et toiture (la surface
-        // extérieure est celle du mur choisi). Le tarif n'est plus saisi dans
-        // le formulaire mais reste stocké en base (conservé si non posté).
+        // Un module ne définit que sa géométrie : l'isolation (mur, plancher,
+        // toiture), la forme de toiture et les surfaces sont choisis côté
+        // client. Le tarif n'est plus saisi ici mais reste stocké en base.
         $fields = [
             'nom' => $nom,
             'longueur' => $longueur,
             'largeur' => $largeur,
             'hauteur' => $hauteur,
-            'forme' => $forme,
-            // pente / pignon dénormalisés depuis la forme (rétro-compatibilité)
-            'pente' => $formePente,
-            'pignon' => $formePignon,
-            'toiture' => $toiture,
-            'mur' => $murId,
-            'plancher' => $plancherId,
         ];
         if (isset($_POST['tarif'])) {
             $fields['tarif'] = round(cat_num('tarif'), 2);
@@ -281,6 +248,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'delete_module') {
         archicad_catalogue_delete('modules', trim((string) ($_POST['id'] ?? '')));
         cat_redirect('modules', 'deleted');
+    }
+
+    // ----- Isolations (type de mur + plancher + toiture) -----
+    if ($action === 'save_isolation') {
+        $id = trim((string) ($_POST['id'] ?? ''));
+        $nom = trim((string) ($_POST['nom'] ?? ''));
+        if ($nom === '') {
+            cat_redirect('isolation', 'invalid');
+        }
+        $ref = function (string $posted, string $kind, array $list): string {
+            $rid = (string) $posted;
+            if ($rid === '' || archicad_catalogue_find($kind, $rid) === null) {
+                $rid = (string) ($list[0]['id'] ?? '');
+            }
+            return $rid;
+        };
+        $item = archicad_catalogue_upsert('isolation', [
+            'nom' => $nom,
+            'mur' => $ref((string) ($_POST['mur'] ?? ''), 'murs', archicad_load_catalogue('murs')),
+            'plancher' => $ref((string) ($_POST['plancher'] ?? ''), 'planchers', archicad_load_catalogue('planchers')),
+            'toiture' => $ref((string) ($_POST['toiture'] ?? ''), 'toitures', archicad_load_catalogue('toitures')),
+        ], $id !== '' ? $id : null);
+        // Visuel (suppression demandée ou nouvel envoi)
+        if (isset($_POST['remove_image']) && (string) ($item['image'] ?? '') !== '') {
+            $fs = archicad_catalogue_image_fs_path((string) $item['image']);
+            if ($fs !== null && is_file($fs)) {
+                unlink($fs);
+            }
+            archicad_catalogue_upsert('isolation', ['image' => ''], (string) $item['id']);
+        }
+        if (isset($_FILES['image']) && is_array($_FILES['image'])) {
+            $stored = archicad_catalogue_store_image($_FILES['image'], (string) $item['id'], 'isolation');
+            if (!$stored['ok']) {
+                cat_redirect('isolation', 'image', (string) $stored['error']);
+            }
+            $old = (string) ($item['image'] ?? '');
+            if ($old !== '' && $old !== $stored['webPath']) {
+                $fs = archicad_catalogue_image_fs_path($old);
+                if ($fs !== null && is_file($fs)) {
+                    unlink($fs);
+                }
+            }
+            archicad_catalogue_upsert('isolation', ['image' => (string) $stored['webPath']], (string) $item['id']);
+        }
+        cat_redirect('isolation', 'saved');
+    }
+    if ($action === 'delete_isolation') {
+        archicad_catalogue_delete('isolation', trim((string) ($_POST['id'] ?? '')));
+        cat_redirect('isolation', 'deleted');
     }
 
     // ----- Formes de toiture (géométrie + pente(s)) -----
@@ -508,6 +524,7 @@ if ($flash === 'saved') {
 $csrf = archicad_admin_csrf_token();
 $menuiseries = archicad_load_catalogue('menuiseries');
 $modules = archicad_load_catalogue('modules');
+$isolations = archicad_load_catalogue('isolation');
 $formes = archicad_load_catalogue('formes');
 $charpentes = archicad_load_catalogue('charpentes');
 $murs = archicad_load_catalogue('murs');
@@ -523,7 +540,6 @@ $toitureTypeLabels = array_column($toitureTypes, 'nom', 'id');
 $formeNames = array_column($formes, 'nom', 'id');
 $formeGeometries = archicad_catalogue_forme_geometries();
 $formeGeoLabels = array_column($formeGeometries, 'nom', 'id');
-$formeById = array_column($formes, null, 'id');
 $murNames = array_column($murs, 'nom', 'id');
 $plancherNames = array_column($planchers, 'nom', 'id');
 $facadeNames = array_column($facades, 'nom', 'id');
@@ -531,6 +547,7 @@ $facadeNames = array_column($facades, 'nom', 'id');
 $new = isset($_GET['new']);
 $editMenuiserie = null;
 $editModule = null;
+$editIsolation = null;
 $editForme = null;
 $editCharpente = null;
 $editEnv = ['sous' => '', 'item' => null];
@@ -539,6 +556,8 @@ if (($editId = trim((string) ($_GET['edit'] ?? ''))) !== '') {
         $editMenuiserie = archicad_catalogue_find('menuiseries', $editId);
     } elseif ($section === 'modules') {
         $editModule = archicad_catalogue_find('modules', $editId);
+    } elseif ($section === 'isolation') {
+        $editIsolation = archicad_catalogue_find('isolation', $editId);
     } elseif ($section === 'formes') {
         $editForme = archicad_catalogue_find('formes', $editId);
     } elseif ($section === 'charpentes') {
@@ -563,6 +582,7 @@ include __DIR__ . '/../includes/admin-head.php';
 
       <nav class="admin-tabs">
         <a href="configurateur.php?section=modules"<?= $section === 'modules' ? ' class="active"' : '' ?>>Modules</a>
+        <a href="configurateur.php?section=isolation"<?= $section === 'isolation' ? ' class="active"' : '' ?>>Isolation</a>
         <a href="configurateur.php?section=formes"<?= $section === 'formes' ? ' class="active"' : '' ?>>Formes</a>
         <a href="configurateur.php?section=charpentes"<?= $section === 'charpentes' ? ' class="active"' : '' ?>>Charpentes</a>
         <a href="configurateur.php?section=murs"<?= $section === 'murs' ? ' class="active"' : '' ?>>Murs</a>
@@ -681,7 +701,7 @@ include __DIR__ . '/../includes/admin-head.php';
     <?php elseif ($section === 'modules'): ?>
     <div class="admin-card">
       <h2>Modules (<?= count($modules) ?>) <?= cat_btn_add('configurateur.php?section=modules&new=1', 'Ajouter un module') ?></h2>
-      <p class="admin-hint">Le client choisit un modèle dans ce catalogue (onglet « Module » du configurateur) : longueur, largeur, hauteur sous plafond, forme de toiture (géométrie, pentes) <strong>et éléments d'enveloppe liés (mur, plancher, toiture)</strong> sont définis par le modèle — le client ne peut pas les modifier, ils lui sont présentés en lecture seule. La surface extérieure est celle du mur choisi.</p>
+      <p class="admin-hint">Le client choisit un modèle dans ce catalogue (onglet « Module » du configurateur) : longueur, largeur et hauteur sous plafond sont définis par le modèle — le client ne peut pas les modifier. L'isolation (mur, plancher, toiture), la forme de toiture et les surfaces sont choisis séparément, côté client (onglets « Isolation » et « Formes »).</p>
       <?php if ($modules === []): ?>
         <p class="admin-hint">Aucun modèle de module dans le catalogue pour le moment.</p>
       <?php else: ?>
@@ -691,19 +711,15 @@ include __DIR__ . '/../includes/admin-head.php';
               <th>Visuel</th>
               <th>Nom</th>
               <th>Géométrie</th>
-              <th>Forme</th>
-              <th>Toiture</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            <?php foreach ($modules as $mod): $fo = $formeById[$mod['forme'] ?? ''] ?? null; ?>
+            <?php foreach ($modules as $mod): ?>
               <tr>
                 <td><?= cat_thumb($mod) ?></td>
                 <td><strong><?= htmlspecialchars((string) $mod['nom']) ?></strong></td>
                 <td><?= cat_cm((float) $mod['longueur']) ?> × <?= cat_cm((float) $mod['largeur']) ?> — h <?= cat_cm((float) $mod['hauteur']) ?></td>
-                <td><?= htmlspecialchars($formeNames[$mod['forme'] ?? ''] ?? (string) ($mod['forme'] ?? '—')) ?><?= $fo ? ' — ' . htmlspecialchars($formeGeoLabels[$fo['geometrie'] ?? ''] ?? (string) ($fo['geometrie'] ?? '')) . ' — ' . (($fo['geometrie'] ?? '') === 'deuxpentes' ? (int) ($fo['pente1'] ?? 0) . '° / ' . (int) ($fo['pente2'] ?? 0) . '°' : (int) ($fo['pente'] ?? 0) . '°') : '' ?></td>
-                <td><?= htmlspecialchars($toitureLabels[$mod['toiture'] ?? ''] ?? (string) ($mod['toiture'] ?? '')) ?></td>
                 <td class="admin-actions">
                   <?= cat_action_edit('configurateur.php?section=modules&edit=' . urlencode((string) $mod['id'])) ?>
                   <?= cat_action_delete('configurateur.php?section=modules', $csrf, 'delete_module', (string) $mod['id'], 'Supprimer ce modèle de module du catalogue ?') ?>
@@ -752,47 +768,98 @@ include __DIR__ . '/../includes/admin-head.php';
             <input type="number" id="mod-hauteur" name="hauteur" step="0.1" min="100" required value="<?= htmlspecialchars($editModule ? cat_cm_input((float) $editModule['hauteur']) : '280') ?>">
           </div>
         </div>
+        <hr class="admin-sep">
+        <p class="admin-hint">Un module ne définit que sa géométrie : l'isolation (mur, plancher, toiture) se choisit dans l'onglet « Isolation », la forme de toiture dans l'onglet « Formes ».</p>
+        <div class="admin-actions">
+          <button type="submit" class="btn btn-cta">Enregistrer</button>
+          <a href="configurateur.php?section=modules" class="btn btn-secondary">Annuler</a>
+        </div>
+      </form>
+    </div>
+    <?php modal_close(); endif; ?>
+
+    <?php elseif ($section === 'isolation'): ?>
+    <div class="admin-card">
+      <h2>Isolations (<?= count($isolations) ?>) <?= cat_btn_add('configurateur.php?section=isolation&new=1', 'Ajouter une isolation') ?></h2>
+      <p class="admin-hint">L'onglet « Isolation » du configurateur : le client choisit ici le type de mur porteur, de plancher et de toiture du module (références vers les onglets Murs, Planchers et Toitures). Le visuel est affiché dans le configurateur.</p>
+      <?php if ($isolations === []): ?>
+        <p class="admin-hint">Aucune isolation dans le catalogue pour le moment.</p>
+      <?php else: ?>
+        <table class="admin-table">
+          <thead>
+            <tr><th>Visuel</th><th>Nom</th><th>Mur</th><th>Plancher</th><th>Toiture</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            <?php foreach ($isolations as $iso): ?>
+              <tr>
+                <td><?= cat_thumb($iso) ?></td>
+                <td><strong><?= htmlspecialchars((string) $iso['nom']) ?></strong></td>
+                <td><?= htmlspecialchars($murNames[$iso['mur'] ?? ''] ?? (string) ($iso['mur'] ?? '—')) ?></td>
+                <td><?= htmlspecialchars($plancherNames[$iso['plancher'] ?? ''] ?? (string) ($iso['plancher'] ?? '—')) ?></td>
+                <td><?= htmlspecialchars($toitureLabels[$iso['toiture'] ?? ''] ?? (string) ($iso['toiture'] ?? '—')) ?></td>
+                <td class="admin-actions">
+                  <?= cat_action_edit('configurateur.php?section=isolation&edit=' . urlencode((string) $iso['id'])) ?>
+                  <?= cat_action_delete('configurateur.php?section=isolation', $csrf, 'delete_isolation', (string) $iso['id'], 'Supprimer cette isolation du catalogue ?') ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+    </div>
+    <?php if ($editIsolation || $new): modal_open('configurateur.php?section=isolation'); ?>
+    <div class="admin-card">
+      <h2><?= $editIsolation ? 'Modifier : ' . htmlspecialchars((string) $editIsolation['nom']) : 'Ajouter une isolation' ?></h2>
+      <form method="post" action="configurateur.php?section=isolation" enctype="multipart/form-data">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
+        <input type="hidden" name="action" value="save_isolation">
+        <input type="hidden" name="id" value="<?= htmlspecialchars((string) ($editIsolation['id'] ?? '')) ?>">
+        <div class="modal-visual-row">
+          <?php if ($editIsolation && ($editIsolation['image'] ?? '') !== ''): ?>
+            <img src="../<?= ltrim(htmlspecialchars((string) $editIsolation['image']), '/') ?>" alt="" class="modal-visual-img">
+            <label class="admin-hint"><input type="checkbox" name="remove_image" value="1"> Supprimer le visuel</label>
+          <?php endif; ?>
+          <label for="iso-image">Visuel (image)</label>
+          <input type="file" id="iso-image" name="image" accept="image/*">
+          <span class="admin-hint">JPG, PNG, WebP ou GIF — 5 Mo max.</span>
+        </div>
+        <hr class="admin-sep">
         <div class="modal-row">
           <div class="admin-form-row">
-            <label for="mod-forme">Forme de toiture (géométrie, pentes — onglet « Formes »)</label>
-            <select id="mod-forme" name="forme">
-              <?php foreach ($formes as $fo): ?>
-                <option value="<?= htmlspecialchars((string) $fo['id']) ?>"<?= (($editModule['forme'] ?? ($formes[0]['id'] ?? '')) === $fo['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $fo['nom']) ?> — <?= htmlspecialchars($formeGeoLabels[$fo['geometrie'] ?? ''] ?? (string) ($fo['geometrie'] ?? '')) ?> — <?= ($fo['geometrie'] ?? '') === 'deuxpentes' ? (int) ($fo['pente1'] ?? 0) . '° / ' . (int) ($fo['pente2'] ?? 0) . '°' : (int) ($fo['pente'] ?? 0) . '°' ?></option>
-              <?php endforeach; ?>
-            </select>
+            <label for="iso-nom">Nom</label>
+            <input type="text" id="iso-nom" name="nom" required value="<?= htmlspecialchars((string) ($editIsolation['nom'] ?? '')) ?>" placeholder="Isolation standard">
           </div>
         </div>
         <hr class="admin-sep">
-        <p class="admin-sep-label">Enveloppe liée au modèle</p>
         <div class="modal-row">
           <div class="admin-form-row">
-            <label for="mod-mur">Mur porteur</label>
-            <select id="mod-mur" name="mur">
+            <label for="iso-mur">Type de mur</label>
+            <select id="iso-mur" name="mur">
               <?php foreach ($murs as $mur): ?>
-                <option value="<?= htmlspecialchars((string) $mur['id']) ?>"<?= (($editModule['mur'] ?? ($murs[0]['id'] ?? '')) === $mur['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $mur['nom']) ?></option>
+                <option value="<?= htmlspecialchars((string) $mur['id']) ?>"<?= (($editIsolation['mur'] ?? ($murs[0]['id'] ?? '')) === $mur['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $mur['nom']) ?><?= !empty($mur['epaisseur']) ? ' — ép. ' . cat_cm((float) $mur['epaisseur']) : '' ?></option>
               <?php endforeach; ?>
             </select>
           </div>
           <div class="admin-form-row">
-            <label for="mod-plancher">Plancher</label>
-            <select id="mod-plancher" name="plancher">
+            <label for="iso-plancher">Type de plancher</label>
+            <select id="iso-plancher" name="plancher">
               <?php foreach ($planchers as $p): ?>
-                <option value="<?= htmlspecialchars((string) $p['id']) ?>"<?= (($editModule['plancher'] ?? ($planchers[0]['id'] ?? '')) === $p['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $p['nom']) ?></option>
+                <option value="<?= htmlspecialchars((string) $p['id']) ?>"<?= (($editIsolation['plancher'] ?? ($planchers[0]['id'] ?? '')) === $p['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $p['nom']) ?><?= !empty($p['epaisseur']) ? ' — ép. ' . cat_cm((float) $p['epaisseur']) : '' ?></option>
               <?php endforeach; ?>
             </select>
           </div>
           <div class="admin-form-row">
-            <label for="mod-toiture">Toiture</label>
-            <select id="mod-toiture" name="toiture">
+            <label for="iso-toiture">Type de toiture</label>
+            <select id="iso-toiture" name="toiture">
               <?php foreach ($toitures as $t): ?>
-                <option value="<?= htmlspecialchars((string) $t['id']) ?>"<?= (($editModule['toiture'] ?? ($toitures[0]['id'] ?? '')) === $t['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $t['nom']) ?><?= !empty($t['epaisseur']) ? ' — ép. ' . cat_cm((float) $t['epaisseur']) : '' ?><?= ($t['favori'] ?? '') !== '' ? ' — réf. « ' . htmlspecialchars((string) $t['favori']) . ' »' : '' ?></option>
+                <option value="<?= htmlspecialchars((string) $t['id']) ?>"<?= (($editIsolation['toiture'] ?? ($toitures[0]['id'] ?? '')) === $t['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $t['nom']) ?><?= !empty($t['epaisseur']) ? ' — ép. ' . cat_cm((float) $t['epaisseur']) : '' ?></option>
               <?php endforeach; ?>
             </select>
           </div>
         </div>
         <div class="admin-actions">
           <button type="submit" class="btn btn-cta">Enregistrer</button>
-          <a href="configurateur.php?section=modules" class="btn btn-secondary">Annuler</a>
+          <a href="configurateur.php?section=isolation" class="btn btn-secondary">Annuler</a>
         </div>
       </form>
     </div>

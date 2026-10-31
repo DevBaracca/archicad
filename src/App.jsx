@@ -30,6 +30,9 @@ const GEO_LABELS = {
   quatrepentes: "Quatre pentes (croupe)",
   terrasse: "Terrasse plate",
 };
+const ISOLATIONS = [
+  { id: "isolation-standard", nom: "Isolation standard", mur: "clt140", plancher: "clt_dalle", toiture: "monopente", image: "" },
+];
 const CHARPENTES = [
   { id: "charpente-tradi", nom: "Charpente traditionnelle", epaisseur: 0.20, rgb: [140, 107, 89], favori: "", tarif: 0, image: "" },
 ];
@@ -53,8 +56,9 @@ const FACES = [
 
 const DEFAULTS = {
   nom: "Baracca_Module_01",
-  moduleId: null, // modèle de module choisi dans le catalogue (null = sur mesure)
-  forme: null, // forme de toiture du module (catalogue « formes » : géométrie, pentes)
+  moduleId: null, // modèle de module choisi dans le catalogue (géométrie seule)
+  isolation: null, // isolation choisie (catalogue « isolation » : mur + plancher + toiture)
+  forme: null, // forme de toiture choisie (catalogue « formes » : géométrie, pentes)
   geometrie: null, // géométrie de la forme : monopente / deuxpentes / quatrepentes
   longueur: 6.0,
   largeur: 3.0,
@@ -105,13 +109,12 @@ const toitureDefOf = (d, env) =>
   || env.toitures.find((t) => t.type === d.toiture)
   || env.toitures[0]
   || { id: "monopente", nom: "Monopente", type: "monopente", favori: "", epaisseur: 0.30, rgb: [120, 113, 108], surface: "" };
-/* Forme de toiture du module choisi (catalogue « formes » : géométrie + pentes),
-   référencée par le modèle ; repli sur les champs de l'état pour les
-   anciennes configurations enregistrées */
+/* Forme de toiture choisie côté client (onglet « Formes », catalogue « formes » :
+   géométrie + pentes) ; repli sur la forme référencée par l'ancien modèle */
 const formeDefOf = (d, env) => {
   const mod = env.modules?.find((m) => m.id === d.moduleId);
-  const byId = (mod?.forme || d.forme) ? env.formes?.find((f) => f.id === (mod?.forme || d.forme)) : null;
-  return byId || null;
+  const formeId = d.forme || mod?.forme || null;
+  return formeId ? env.formes?.find((f) => f.id === formeId) || null : null;
 };
 
 /* Géométrie de toiture effective : la forme du module prioritairement,
@@ -314,6 +317,7 @@ function buildExport(d, env) {
   const toitureDef = toitureDefOf(d, env);
   const toitType = toitTypeOf(d, env);
   const formeDef = formeDefOf(d, env);
+  const isoDef = env.isolations?.find((x) => x.id === d.isolation) || null;
   const surfaceDef = env.facades.find((f) => f.id === murDef.surface) || env.facades[0];
   const mursData = {};
   FACES.forEach((f) => {
@@ -343,6 +347,8 @@ function buildExport(d, env) {
     cible: "Archicad JSON API + Tapir",
     module: {
       nom: d.nom,
+      modele: env.modules?.find((m) => m.id === d.moduleId)?.nom ?? null, // modèle de module choisi
+      isolation: isoDef ? { id: isoDef.id, nom: isoDef.nom } : null, // isolation choisie (mur + plancher + toiture)
       dimensions: { longueur: d.longueur, largeur: d.largeur, hauteur: d.hauteur },
       plancher: {
         nom: plancherDef.nom,
@@ -668,6 +674,7 @@ export default function App() {
     facades: catalogue?.enveloppe?.surfaces?.length ? catalogue.enveloppe.surfaces : FACADES,
     menuiseries: catalogue?.menuiseries?.length ? catalogue.menuiseries : null,
     modules: catalogue?.modules?.length ? catalogue.modules : null,
+    isolations: catalogue?.isolation?.length ? catalogue.isolation : ISOLATIONS,
     formes: catalogue?.formes?.length ? catalogue.formes : FORMES,
     charpentes: catalogue?.charpentes?.length ? catalogue.charpentes : CHARPENTES,
     toitures: catalogue?.toitures?.length ? catalogue.toitures : TOITURES,
@@ -680,6 +687,7 @@ export default function App() {
   const formeDef = formeDefOf(d, env);
   const murSel = env.murs.find((m) => m.id === d.murType);
   const moduleSel = env.modules?.find((m) => m.id === d.moduleId);
+  const isoSel = env.isolations?.find((x) => x.id === d.isolation);
   const surfaceSel = env.facades.find((f) => f.id === murSel?.surface) || env.facades[0];
   const surfaceNom = (id) => env.facades.find((f) => f.id === id)?.nom || "—";
   const plancherSel = env.planchers.find((p) => p.id === d.plancher);
@@ -687,37 +695,47 @@ export default function App() {
   const tarifs = useMemo(() => tarifTotal(d, env), [d, catalogue]); // eslint-disable-line react-hooks/exhaustive-deps
   const surfaces = useMemo(() => surfacesChiffrage(d, env), [d, catalogue]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Patch d'état appliqué au choix d'un modèle de module du catalogue :
-     géométrie prédéfinie + éléments d'enveloppe liés au modèle
-     (le client ne peut ni l'un ni l'autre — affichage en lecture seule) */
-  const modulePatch = (m) => {
-    // La géométrie et les pentes viennent de la forme de toiture référencée
-    // par le module (catalogue « formes ») — elles ne sont plus modifiables seules
-    const forme = env.formes?.find((f) => f.id === m.forme);
-    const geometrie = forme?.geometrie || (m.pignon ? "deuxpentes" : "monopente");
-    const p1 = +(forme?.pente1 ?? forme?.pente ?? m.pente ?? 15);
-    const p2 = +(forme?.pente2 ?? forme?.pente1 ?? forme?.pente ?? m.pente ?? 15);
-    return {
-      moduleId: m.id,
-      nom: m.nom,
-      forme: m.forme || null,
-      geometrie,
-      longueur: +m.longueur,
-      largeur: +m.largeur,
-      hauteur: +m.hauteur,
-      toiture: m.toiture,
-      pente: p1,
-      pente2: geometrie === "deuxpentes" ? p2 : p1,
-      pignon: geometrie === "deuxpentes", // deux pentes = pignon, quatre pentes = croupe
-      ...(m.mur ? { murType: m.mur } : {}),
-      ...(m.plancher ? { plancher: m.plancher } : {}),
-      // la surface extérieure est celle du mur choisi (mur.surface)
-    };
-  };
+  /* Patch d'état appliqué au choix d'un modèle de module : géométrie
+     prédéfinie uniquement (le client ne peut pas la modifier). L'isolation
+     (mur/plancher/toiture) et la forme de toiture se choisissent à part. */
+  const modulePatch = (m) => ({
+    moduleId: m.id,
+    nom: m.nom,
+    longueur: +m.longueur,
+    largeur: +m.largeur,
+    hauteur: +m.hauteur,
+  });
 
   const applyModule = (id) => {
     const m = env.modules?.find((x) => x.id === id);
     set(m ? modulePatch(m) : { moduleId: null });
+  };
+
+  /* Choix de l'isolation (onglet Isolation) : type de mur, plancher, toiture */
+  const applyIsolation = (id) => {
+    const iso = env.isolations?.find((x) => x.id === id);
+    set(iso
+      ? { isolation: iso.id, murType: iso.mur, plancher: iso.plancher, toiture: iso.toiture }
+      : { isolation: null });
+  };
+
+  /* Choix de la forme de toiture (onglet Formes) : géométrie + pente(s) */
+  const applyForme = (id) => {
+    const f = env.formes?.find((x) => x.id === id);
+    if (!f) {
+      set({ forme: null });
+      return;
+    }
+    const geometrie = f.geometrie || "monopente";
+    const p1 = +(f.pente1 ?? f.pente ?? 15);
+    const p2 = +(f.pente2 ?? f.pente1 ?? f.pente ?? 15);
+    set({
+      forme: f.id,
+      geometrie,
+      pente: p1,
+      pente2: geometrie === "deuxpentes" ? p2 : p1,
+      pignon: geometrie === "deuxpentes", // deux pentes = pignon, quatre pentes = croupe
+    });
   };
 
   const ouvrirAjout = () => {
@@ -960,6 +978,8 @@ export default function App() {
 
   const tabs = [
     ["module", "Module"],
+    ["isolation", "Isolation"],
+    ["formes", "Formes"],
     ["murs", "Murs"],
     ["toiture", "Toiture"],
     ["ouvrants", "Ouvrants"],
@@ -1030,14 +1050,10 @@ export default function App() {
                 <select value={d.moduleId || ""} onChange={(e) => applyModule(e.target.value)}>
                   {!d.moduleId && <option value="">— Choisir un module —</option>}
                   {env.modules?.map((m) => {
-                    const modToit = env.toitures.find((t) => t.id === m.toiture);
-                    const modForme = env.formes?.find((f) => f.id === m.forme);
-                    const modMur = env.murs.find((x) => x.id === m.mur);
-                    const modSurf = env.facades.find((f) => f.id === modMur?.surface);
                     const surf = (m.longueur * m.largeur).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
                     return (
                       <option key={m.id} value={m.id}>
-                        {m.nom} — {surf} m² — {modForme?.nom || "—"} — {modToit?.nom || m.toiture} — {modSurf?.nom || "—"}
+                        {m.nom} — {surf} m²
                       </option>
                     );
                   })}
@@ -1045,11 +1061,72 @@ export default function App() {
               </div>
             </>
           )}
+
+          {tab === "isolation" && (
+            <>
+              <div className="field">
+                <label>Type d'isolation (catalogue)</label>
+                <select value={d.isolation || ""} onChange={(e) => applyIsolation(e.target.value)}>
+                  {!d.isolation && <option value="">— Choisir une isolation —</option>}
+                  {env.isolations?.map((iso) => {
+                    const isoMur = env.murs.find((x) => x.id === iso.mur);
+                    const isoPlancher = env.planchers.find((p) => p.id === iso.plancher);
+                    const isoToit = env.toitures.find((t) => t.id === iso.toiture);
+                    return (
+                      <option key={iso.id} value={iso.id}>
+                        {iso.nom} — {isoMur?.nom || "—"} / {isoPlancher?.nom || "—"} / {isoToit?.nom || "—"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              {isoSel && (
+                <div className="spec" style={{ marginTop: 12 }}>
+                  <div className="spec-row"><span className="spec-k">Mur porteur</span><span className="spec-v">{murSel?.nom || "—"}</span></div>
+                  <div className="spec-row"><span className="spec-k">Plancher</span><span className="spec-v">{plancherSel?.nom || "—"}</span></div>
+                  <div className="spec-row"><span className="spec-k">Toiture</span><span className="spec-v">{toitureNom} — ép. {fmtCm(+(toitureDef.epaisseur ?? 0.30))} cm</span></div>
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === "formes" && (
+            <>
+              <div className="field">
+                <label>Forme de toiture (catalogue)</label>
+                <select value={d.forme || ""} onChange={(e) => applyForme(e.target.value)}>
+                  {!d.forme && <option value="">— Choisir une forme —</option>}
+                  {env.formes?.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.nom} — {GEO_LABELS[f.geometrie] || f.geometrie || "—"}
+                      {f.geometrie === "deuxpentes" ? ` — ${f.pente1 ?? f.pente}° / ${f.pente2 ?? f.pente}°` : ` — ${f.pente}°`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {formeDef && (
+                <div className="spec" style={{ marginTop: 12 }}>
+                  <div className="spec-row"><span className="spec-k">Géométrie</span><span className="spec-v">{GEO_LABELS[toitType] || toitType}</span></div>
+                  <div className="spec-row">
+                    <span className="spec-k">{toitType === "deuxpentes" ? "Pentes des versants" : "Pente"}</span>
+                    <span className="spec-v">
+                      {toitType === "deuxpentes" ? `${d.pente}° / ${d.pente2 ?? d.pente}°` : `${d.pente}°`}
+                    </span>
+                  </div>
+                  <div className="spec-row"><span className="spec-k">Faitage</span><span className="spec-v">+{fmtCm(hauteurFaitage(d, toitType))} cm</span></div>
+                </div>
+              )}
+            </>
+          )}
           </div>
           <div className="reglage-side">
-            {moduleSel?.image
-              ? <img src={moduleSel.image} alt={moduleSel.nom || "Module"} className="reglage-visual-img" />
-              : <div className="reglage-visual-empty">—</div>}
+            {(() => {
+              const img = tab === "isolation" ? isoSel?.image : tab === "formes" ? formeDef?.image : moduleSel?.image;
+              const alt = tab === "isolation" ? isoSel?.nom : tab === "formes" ? formeDef?.nom : moduleSel?.nom;
+              return img
+                ? <img src={img} alt={alt || ""} className="reglage-visual-img" />
+                : <div className="reglage-visual-empty">—</div>;
+            })()}
           </div>
           </div>
 
