@@ -14,3 +14,6 @@ php/modules-configures/
 # Visuels du catalogue envoyés depuis le back-office — jamais versionnés
 assets/images/catalogue/*
 !assets/images/catalogue/.gitkeep
+
+# Dump de la base en ligne (dossier dateactuel) — jamais versionné
+dateactuel/
