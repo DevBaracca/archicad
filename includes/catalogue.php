@@ -2,9 +2,10 @@
 /**
  * Baracca - Site archicad.baracca.fr
  * Catalogues du configurateur (data/catalogue/, un fichier JSON par rubrique :
- * menuiseries.json, modules.json, murs.json, planchers.json, surfaces.json,
- * toitures.json) : menuiseries (baies vitrées, fenêtres, portes — avec visuel),
- * modèles de modules (géométrie prédéfinie), murs, planchers, surfaces et
+ * menuiseries.json, modules.json, formes.json, charpentes.json, murs.json,
+ * planchers.json, surfaces.json, toitures.json) : menuiseries (baies vitrées,
+ * fenêtres, portes — avec visuel), modèles de modules (géométrie prédéfinie),
+ * formes de toiture (pente, pignon), charpentes, murs, planchers, surfaces et
  * toitures. Chaque élément porte un tarif, additionné par le configurateur
  * pour afficher le tarif global du projet.
  *
@@ -16,8 +17,8 @@
 require_once __DIR__ . '/../config.php';
 
 // Chaque kind a son propre fichier JSON dans data/catalogue/ :
-// menuiseries.json, modules.json, murs.json, planchers.json,
-// surfaces.json, toitures.json (structure {"items": [...]}).
+// menuiseries.json, modules.json, formes.json, charpentes.json, murs.json,
+// planchers.json, surfaces.json, toitures.json (structure {"items": [...]}).
 function archicad_catalogue_dir(): string
 {
     return ARCHICAD_DATA_DIR . '/catalogue';
@@ -95,12 +96,28 @@ function archicad_catalogue_defaults(string $kind): array
                 ['id' => 'porte-90x205', 'nom' => 'Porte 0,90 × 2,05 m', 'type' => 'porte', 'largeur' => 0.90, 'hauteur' => 2.05, 'favori' => '', 'tarif' => 0, 'image' => '', 'created' => $today],
                 ['id' => 'porte-fenetre-180x215', 'nom' => 'Porte-fenêtre 1,80 × 2,15 m', 'type' => 'baie', 'largeur' => 1.80, 'hauteur' => 2.15, 'favori' => '', 'tarif' => 0, 'image' => '', 'created' => $today],
             ];
+        case 'formes':
+            // Formes de toiture : pente (°) et présence d'un pignon.
+            // Un modèle de module référence l'id d'une forme (la pente et le
+            // pignon ne sont plus saisis dans le module).
+            return [
+                ['id' => 'forme-monopente-15', 'nom' => 'Monopente 15°', 'pente' => 15, 'pignon' => false, 'image' => '', 'created' => $today],
+                ['id' => 'forme-deuxpentes-30', 'nom' => 'Deux pentes 30° — pignon', 'pente' => 30, 'pignon' => true, 'image' => '', 'created' => $today],
+                ['id' => 'forme-deuxpentes-45', 'nom' => 'Deux pentes 45° — pignon', 'pente' => 45, 'pignon' => true, 'image' => '', 'created' => $today],
+            ];
+        case 'charpentes':
+            // Charpentes (à l'identique des ouvrants : visuel, nom, épaisseur,
+            // couleur, coût unitaire, référence Archicad)
+            return [
+                ['id' => 'charpente-tradi', 'nom' => 'Charpente traditionnelle', 'epaisseur' => 0.20, 'image' => '', 'rgb' => [140, 107, 89], 'favori' => '', 'tarif' => 0, 'created' => $today],
+            ];
         case 'modules':
             // Un modèle de module embarque les éléments liés
-            // (mur, plancher, facade : id des catalogues murs/planchers/surfaces)
+            // (forme, mur, plancher, facade : id des catalogues formes/murs/
+            // planchers/surfaces) ainsi que la toiture (rubrique toitures)
             return [
-                ['id' => 'module-6x3', 'nom' => 'Module 6,00 × 3,00 m — h 2,80 m', 'longueur' => 6.0, 'largeur' => 3.0, 'hauteur' => 2.8, 'toiture' => 'monopente', 'image' => '', 'pente' => 15, 'pignon' => true, 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
-                ['id' => 'module-9x36', 'nom' => 'Module 9,00 × 3,60 m — h 2,80 m', 'longueur' => 9.0, 'largeur' => 3.6, 'hauteur' => 2.8, 'toiture' => 'deuxpentes', 'image' => '', 'pente' => 30, 'pignon' => true, 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
+                ['id' => 'module-6x3', 'nom' => 'Module 6,00 × 3,00 m — h 2,80 m', 'longueur' => 6.0, 'largeur' => 3.0, 'hauteur' => 2.8, 'forme' => 'forme-monopente-15', 'toiture' => 'toit-monopente', 'image' => '', 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
+                ['id' => 'module-9x36', 'nom' => 'Module 9,00 × 3,60 m — h 2,80 m', 'longueur' => 9.0, 'largeur' => 3.6, 'hauteur' => 2.8, 'forme' => 'forme-deuxpentes-30', 'toiture' => 'toit-deuxpentes', 'image' => '', 'mur' => 'clt140', 'plancher' => 'clt_dalle', 'facade' => 'bardage_bois', 'tarif' => 0, 'created' => $today],
             ];
         case 'murs':
             // favori = nom du favori Archicad à utiliser ('' = aucun, à
@@ -237,6 +254,24 @@ function archicad_load_catalogue(string $kind): array
             }
         }
     }
+    if ($kind === 'formes') {
+        foreach ($items as $i => $item) {
+            if (!isset($item['pente']) || !is_numeric($item['pente'])) {
+                $items[$i]['pente'] = 15;
+            }
+            $items[$i]['pignon'] = !empty($item['pignon']);
+        }
+    }
+    if ($kind === 'charpentes') {
+        foreach ($items as $i => $item) {
+            if (empty($item['epaisseur'])) {
+                $items[$i]['epaisseur'] = 0.20;
+            }
+            if (empty($item['rgb'])) {
+                $items[$i]['rgb'] = [140, 107, 89];
+            }
+        }
+    }
     if ($kind === 'modules') {
         // Rétro-compatibilité : un modèle embarque les éléments d'enveloppe
         // (mur, plancher, facade) — à défaut, le premier de chaque catalogue
@@ -245,11 +280,38 @@ function archicad_load_catalogue(string $kind): array
             'plancher' => archicad_load_catalogue('planchers'),
             'facade' => archicad_load_catalogue('surfaces'),
         ];
+        $changedModules = false;
         foreach ($items as $i => $item) {
             foreach ($refs as $key => $list) {
                 if (empty($item[$key]) && isset($list[0]['id'])) {
                     $items[$i][$key] = (string) $list[0]['id'];
                 }
+            }
+            // Migration : la pente / le pignon d'un ancien modèle sont repris
+            // dans une forme du catalogue « formes » (créée si besoin), référencée
+            // par le champ « forme » ; pente/pignon restent en base (dénormalisés)
+            if (empty($item['forme'])) {
+                $pente = (int) round((float) ($item['pente'] ?? 15));
+                $pignon = !empty($item['pignon']);
+                $formes = archicad_load_catalogue('formes');
+                $found = null;
+                foreach ($formes as $f) {
+                    if ((int) round((float) ($f['pente'] ?? 0)) === $pente && !empty($f['pignon']) === $pignon) {
+                        $found = $f;
+                        break;
+                    }
+                }
+                if ($found === null) {
+                    $found = archicad_catalogue_upsert('formes', [
+                        'nom' => 'Pente ' . $pente . '°' . ($pignon ? ' — pignon' : ''),
+                        'pente' => $pente,
+                        'pignon' => $pignon,
+                    ]);
+                }
+                $items[$i]['forme'] = (string) $found['id'];
+                $items[$i]['pente'] = $pente;
+                $items[$i]['pignon'] = $pignon;
+                $changedModules = true;
             }
             // La toiture du modèle référence désormais la rubrique toitures :
             // un ancien id de vocabulaire géométrique (monopente, ...) est
@@ -272,6 +334,9 @@ function archicad_load_catalogue(string $kind): array
                 }
                 $items[$i]['toiture'] = (string) (($found ?? $toitures[0] ?? [])['id'] ?? 'monopente');
             }
+        }
+        if ($changedModules) {
+            archicad_save_catalogue('modules', $items);
         }
     }
     return $items;
@@ -335,6 +400,8 @@ function archicad_catalogue_total_items(): int
 {
     return count(archicad_load_catalogue('menuiseries'))
         + count(archicad_load_catalogue('modules'))
+        + count(archicad_load_catalogue('formes'))
+        + count(archicad_load_catalogue('charpentes'))
         + count(archicad_load_catalogue('murs'))
         + count(archicad_load_catalogue('planchers'))
         + count(archicad_load_catalogue('surfaces'))

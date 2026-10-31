@@ -2,9 +2,9 @@
 /**
  * Baracca - Site archicad.baracca.fr
  * API (même origine) : catalogues du configurateur (menuiseries, modèles de
- * modules, enveloppe), consommée par l'application React. Lecture seule :
- * la gestion des catalogues se fait depuis le back-office
- * (admin/configurateur.php).
+ * modules, formes de toiture, charpentes, enveloppe), consommée par
+ * l'application React. Lecture seule : la gestion des catalogues se fait
+ * depuis le back-office (admin/configurateur.php).
  */
 require_once __DIR__ . '/../includes/catalogue.php';
 
@@ -16,6 +16,8 @@ echo json_encode([
     'catalogue' => [
         'menuiseries' => archicad_load_catalogue('menuiseries'),
         'modules' => archicad_load_catalogue('modules'),
+        'formes' => archicad_load_catalogue('formes'),
+        'charpentes' => archicad_load_catalogue('charpentes'),
         'enveloppe' => [
             'murs' => archicad_load_catalogue('murs'),
             'planchers' => archicad_load_catalogue('planchers'),

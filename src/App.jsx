@@ -18,6 +18,14 @@ const TOITURES = [
   { id: "deuxpentes", nom: "Deux pentes", type: "deuxpentes", epaisseur: 0.30, surface: "", rgb: [120, 113, 108], favori: "Baracca — Toiture deux pentes" },
   { id: "terrasse", nom: "Terrasse plate", type: "terrasse", epaisseur: 0.25, surface: "", rgb: [120, 113, 108], favori: "Baracca — Toiture terrasse" },
 ];
+const FORMES = [
+  { id: "forme-monopente-15", nom: "Monopente 15°", pente: 15, pignon: false, image: "" },
+  { id: "forme-deuxpentes-30", nom: "Deux pentes 30° — pignon", pente: 30, pignon: true, image: "" },
+  { id: "forme-deuxpentes-45", nom: "Deux pentes 45° — pignon", pente: 45, pignon: true, image: "" },
+];
+const CHARPENTES = [
+  { id: "charpente-tradi", nom: "Charpente traditionnelle", epaisseur: 0.20, rgb: [140, 107, 89], favori: "", tarif: 0, image: "" },
+];
 const PLANCHERS = [
   { id: "clt_dalle", nom: "Dalle CLT + chape", epaisseur: 0.30, favori: "" },
   { id: "plancher_bois", nom: "Plancher bois sur lambourdes", epaisseur: 0.24, favori: "" },
@@ -39,6 +47,7 @@ const FACES = [
 const DEFAULTS = {
   nom: "Baracca_Module_01",
   moduleId: null, // modèle de module choisi dans le catalogue (null = sur mesure)
+  forme: null, // forme de toiture du module (catalogue « formes » : pente, pignon)
   longueur: 6.0,
   largeur: 3.0,
   hauteur: 2.8,
@@ -88,6 +97,15 @@ const toitureDefOf = (d, env) =>
   || env.toitures[0]
   || { id: "monopente", nom: "Monopente", type: "monopente", favori: "", epaisseur: 0.30, rgb: [120, 113, 108], surface: "" };
 const toitTypeOf = (d, env) => toitureDefOf(d, env).type || "monopente";
+
+/* Forme de toiture du module choisi (catalogue « formes » : pente + pignon),
+   référencée par le modèle ; repli sur les champs pente/pignon de l'état
+   pour les anciennes configurations enregistrées */
+const formeDefOf = (d, env) => {
+  const mod = env.modules?.find((m) => m.id === d.moduleId);
+  const byId = (mod?.forme || d.forme) ? env.formes?.find((f) => f.id === (mod?.forme || d.forme)) : null;
+  return byId || null;
+};
 
 function surfaceToiture(d, tt) {
   if (tt === "terrasse") return surfacePlancher(d);
@@ -258,6 +276,7 @@ function buildExport(d, env) {
   const facadeDef = env.facades.find((f) => f.id === (murDef.surface ?? d.facade)) || env.facades[0];
   const toitureDef = toitureDefOf(d, env);
   const toitType = toitTypeOf(d, env);
+  const formeDef = formeDefOf(d, env);
   const surfaceDef = env.facades.find((f) => f.id === murDef.surface) || env.facades[0];
   const mursData = {};
   FACES.forEach((f) => {
@@ -304,6 +323,7 @@ function buildExport(d, env) {
       toiture: {
         type: toitureDef.nom,
         geometrie: toitType, // monopente / deuxpentes / terrasse
+        forme: formeDef ? { id: formeDef.id, nom: formeDef.nom } : null, // forme de toiture du module (catalogue « formes »)
         favori: toitureDef.favori ?? "", // favori Archicad pour la toiture
         surface: (env.facades.find((f) => f.id === (d.surfaceToiture ?? toitureDef.surface)) || env.facades[0]).nom, // surface choisie pour la toiture
         epaisseur: +(+(toitureDef.epaisseur ?? 0.30)).toFixed(3),
@@ -580,6 +600,8 @@ export default function App() {
     facades: catalogue?.enveloppe?.surfaces?.length ? catalogue.enveloppe.surfaces : FACADES,
     menuiseries: catalogue?.menuiseries?.length ? catalogue.menuiseries : null,
     modules: catalogue?.modules?.length ? catalogue.modules : null,
+    formes: catalogue?.formes?.length ? catalogue.formes : FORMES,
+    charpentes: catalogue?.charpentes?.length ? catalogue.charpentes : CHARPENTES,
     toitures: catalogue?.toitures?.length ? catalogue.toitures : TOITURES,
   };
 
@@ -587,6 +609,7 @@ export default function App() {
   const toitureDef = toitureDefOf(d, env);
   const toitType = toitTypeOf(d, env);
   const toitureNom = toitureDef.nom;
+  const formeDef = formeDefOf(d, env);
   const murSel = env.murs.find((m) => m.id === d.murType);
   const moduleSel = env.modules?.find((m) => m.id === d.moduleId);
   const surfaceSel = env.facades.find((f) => f.id === murSel?.surface) || env.facades[0];
@@ -599,19 +622,25 @@ export default function App() {
   /* Patch d'état appliqué au choix d'un modèle de module du catalogue :
      géométrie prédéfinie + éléments d'enveloppe liés au modèle
      (le client ne peut ni l'un ni l'autre — affichage en lecture seule) */
-  const modulePatch = (m) => ({
-    moduleId: m.id,
-    nom: m.nom,
-    longueur: +m.longueur,
-    largeur: +m.largeur,
-    hauteur: +m.hauteur,
-    toiture: m.toiture,
-    pente: +m.pente || 15,
-    pignon: m.pignon !== false,
-    ...(m.mur ? { murType: m.mur } : {}),
-    ...(m.plancher ? { plancher: m.plancher } : {}),
-    // la surface extérieure est celle du mur choisi (mur.surface)
-  });
+  const modulePatch = (m) => {
+    // La pente et le pignon viennent de la forme de toiture référencée par le
+    // module (catalogue « formes ») — ils ne sont plus modifiables seuls
+    const forme = env.formes?.find((f) => f.id === m.forme);
+    return {
+      moduleId: m.id,
+      nom: m.nom,
+      forme: m.forme || null,
+      longueur: +m.longueur,
+      largeur: +m.largeur,
+      hauteur: +m.hauteur,
+      toiture: m.toiture,
+      pente: forme ? +forme.pente : (+m.pente || 15),
+      pignon: forme ? !!forme.pignon : m.pignon !== false,
+      ...(m.mur ? { murType: m.mur } : {}),
+      ...(m.plancher ? { plancher: m.plancher } : {}),
+      // la surface extérieure est celle du mur choisi (mur.surface)
+    };
+  };
 
   const applyModule = (id) => {
     const m = env.modules?.find((x) => x.id === id);
@@ -929,12 +958,13 @@ export default function App() {
                   {!d.moduleId && <option value="">— Choisir un module —</option>}
                   {env.modules?.map((m) => {
                     const modToit = env.toitures.find((t) => t.id === m.toiture);
+                    const modForme = env.formes?.find((f) => f.id === m.forme);
                     const modMur = env.murs.find((x) => x.id === m.mur);
                     const modSurf = env.facades.find((f) => f.id === modMur?.surface);
                     const surf = (m.longueur * m.largeur).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
                     return (
                       <option key={m.id} value={m.id}>
-                        {m.nom} — {surf} m² — {modToit?.nom || m.toiture} — {modSurf?.nom || "—"}
+                        {m.nom} — {surf} m² — {modForme?.nom || "—"} — {modToit?.nom || m.toiture} — {modSurf?.nom || "—"}
                       </option>
                     );
                   })}
@@ -963,8 +993,12 @@ export default function App() {
                 <div className="spec-row"><span className="spec-k">Hauteur sous plafond</span><span className="spec-v">{fmtCm(d.hauteur)} cm</span></div>
                 <div className="spec-row">
                   <span className="spec-k">Toiture</span>
+                  <span className="spec-v">{toitureNom} — ép. {fmtCm(+(toitureDef.epaisseur ?? 0.30))} cm</span>
+                </div>
+                <div className="spec-row">
+                  <span className="spec-k">Forme de toiture</span>
                   <span className="spec-v">
-                    {toitureNom}
+                    {formeDef ? formeDef.nom : "—"}
                     {toitType !== "terrasse" && ` — pente ${d.pente}°`}
                     {toitType === "deuxpentes" && (d.pignon ? " — pignon" : " — croupe")}
                   </span>

@@ -3,9 +3,10 @@
  * Baracca - Back-office (archicad.baracca.fr)
  * Gestion des catalogues du configurateur : menuiseries (baies vitrées,
  * fenêtres, portes — avec visuel et référence Archicad), modèles de modules
- * (géométrie prédéfinie + toiture et éléments d'enveloppe liés) et enveloppe
- * (murs, planchers, surfaces, toitures). Chaque élément porte un tarif ;
- * le configurateur en calcule le tarif global du projet.
+ * (géométrie prédéfinie + forme de toiture et éléments d'enveloppe liés),
+ * formes de toiture (pente, pignon), charpentes et enveloppe (murs, planchers,
+ * surfaces, toitures). Chaque élément porte un tarif ; le configurateur en
+ * calcule le tarif global du projet.
  *
  * L'ajout / la modification d'un élément se fait dans une boîte (modale) :
  * bouton « + » à côté du titre de la rubrique, crayon pour modifier,
@@ -18,13 +19,13 @@ require_once __DIR__ . '/../includes/catalogue.php';
 archicad_admin_require_auth();
 
 $section = (string) ($_GET['section'] ?? 'modules');
-// Onglets : Modules, Murs, Planchers, Toitures, Ouvrants, Surfaces
+// Onglets : Modules, Formes, Charpentes, Murs, Planchers, Toitures, Ouvrants, Surfaces
 // (l'ancien onglet « enveloppe » est éclaté en sous-onglets)
 if ($section === 'enveloppe') {
     $sous0 = (string) ($_GET['sous'] ?? '');
     $section = in_array($sous0, ['murs', 'planchers', 'toitures', 'surfaces'], true) ? $sous0 : 'murs';
 }
-if (!in_array($section, ['modules', 'murs', 'planchers', 'toitures', 'menuiseries', 'surfaces'], true)) {
+if (!in_array($section, ['modules', 'formes', 'charpentes', 'murs', 'planchers', 'toitures', 'menuiseries', 'surfaces'], true)) {
     $section = 'modules';
 }
 
@@ -210,7 +211,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($toiture, array_column($toitureList, 'id'), true)) {
             $toiture = (string) ($toitureList[0]['id'] ?? '');
         }
-        $pente = max(0, min(45, (int) round(cat_num('pente'))));
+        // Forme de toiture : élément de la rubrique « Formes » (pente + pignon)
+        $forme = (string) ($_POST['forme'] ?? '');
+        $formesList = archicad_load_catalogue('formes');
+        if (!in_array($forme, array_column($formesList, 'id'), true)) {
+            $forme = (string) ($formesList[0]['id'] ?? '');
+        }
+        $formeItem = archicad_catalogue_find('formes', $forme);
         if ($nom === '' || $longueur <= 0 || $largeur <= 0 || $hauteur <= 0) {
             cat_redirect('modules', 'invalid');
         }
@@ -233,9 +240,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'longueur' => $longueur,
             'largeur' => $largeur,
             'hauteur' => $hauteur,
+            'forme' => $forme,
+            // pente / pignon dénormalisés depuis la forme (rétro-compatibilité)
+            'pente' => (int) round((float) ($formeItem['pente'] ?? 15)),
+            'pignon' => !empty($formeItem['pignon']),
             'toiture' => $toiture,
-            'pente' => $pente,
-            'pignon' => isset($_POST['pignon']),
             'mur' => $murId,
             'plancher' => $plancherId,
         ];
@@ -270,6 +279,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'delete_module') {
         archicad_catalogue_delete('modules', trim((string) ($_POST['id'] ?? '')));
         cat_redirect('modules', 'deleted');
+    }
+
+    // ----- Formes de toiture (pente, pignon) -----
+    if ($action === 'save_forme') {
+        $id = trim((string) ($_POST['id'] ?? ''));
+        $nom = trim((string) ($_POST['nom'] ?? ''));
+        $pente = max(0, min(90, (int) round(cat_num('pente'))));
+        if ($nom === '') {
+            cat_redirect('formes', 'invalid');
+        }
+        $item = archicad_catalogue_upsert('formes', [
+            'nom' => $nom,
+            'pente' => $pente,
+            'pignon' => isset($_POST['pignon']),
+        ], $id !== '' ? $id : null);
+        // Visuel (suppression demandée ou nouvel envoi)
+        if (isset($_POST['remove_image']) && (string) ($item['image'] ?? '') !== '') {
+            $fs = archicad_catalogue_image_fs_path((string) $item['image']);
+            if ($fs !== null && is_file($fs)) {
+                unlink($fs);
+            }
+            archicad_catalogue_upsert('formes', ['image' => ''], (string) $item['id']);
+        }
+        if (isset($_FILES['image']) && is_array($_FILES['image'])) {
+            $stored = archicad_catalogue_store_image($_FILES['image'], (string) $item['id'], 'formes');
+            if (!$stored['ok']) {
+                cat_redirect('formes', 'image', (string) $stored['error']);
+            }
+            $old = (string) ($item['image'] ?? '');
+            if ($old !== '' && $old !== $stored['webPath']) {
+                $fs = archicad_catalogue_image_fs_path($old);
+                if ($fs !== null && is_file($fs)) {
+                    unlink($fs);
+                }
+            }
+            archicad_catalogue_upsert('formes', ['image' => (string) $stored['webPath']], (string) $item['id']);
+        }
+        cat_redirect('formes', 'saved');
+    }
+    if ($action === 'delete_forme') {
+        archicad_catalogue_delete('formes', trim((string) ($_POST['id'] ?? '')));
+        cat_redirect('formes', 'deleted');
+    }
+
+    // ----- Charpentes (visuel, nom, épaisseur, couleur, coût unitaire, référence Archicad) -----
+    if ($action === 'save_charpente') {
+        $id = trim((string) ($_POST['id'] ?? ''));
+        $nom = trim((string) ($_POST['nom'] ?? ''));
+        // Saisie en cm (précision mm) — stockage en m
+        $epaisseur = round(cat_num('epaisseur') / 100, 3);
+        $tarif = round(cat_num('tarif'), 2);
+        if ($nom === '' || $epaisseur <= 0) {
+            cat_redirect('charpentes', 'invalid');
+        }
+        $item = archicad_catalogue_upsert('charpentes', [
+            'nom' => $nom,
+            'epaisseur' => $epaisseur,
+            'rgb' => [
+                max(0, min(255, (int) round(cat_num('r')))),
+                max(0, min(255, (int) round(cat_num('g')))),
+                max(0, min(255, (int) round(cat_num('b')))),
+            ],
+            'favori' => trim((string) ($_POST['favori'] ?? '')),
+            'tarif' => $tarif,
+        ], $id !== '' ? $id : null);
+        // Visuel (suppression demandée ou nouvel envoi)
+        if (isset($_POST['remove_image']) && (string) ($item['image'] ?? '') !== '') {
+            $fs = archicad_catalogue_image_fs_path((string) $item['image']);
+            if ($fs !== null && is_file($fs)) {
+                unlink($fs);
+            }
+            archicad_catalogue_upsert('charpentes', ['image' => ''], (string) $item['id']);
+        }
+        if (isset($_FILES['image']) && is_array($_FILES['image'])) {
+            $stored = archicad_catalogue_store_image($_FILES['image'], (string) $item['id'], 'charpentes');
+            if (!$stored['ok']) {
+                cat_redirect('charpentes', 'image', (string) $stored['error']);
+            }
+            $old = (string) ($item['image'] ?? '');
+            if ($old !== '' && $old !== $stored['webPath']) {
+                $fs = archicad_catalogue_image_fs_path($old);
+                if ($fs !== null && is_file($fs)) {
+                    unlink($fs);
+                }
+            }
+            archicad_catalogue_upsert('charpentes', ['image' => (string) $stored['webPath']], (string) $item['id']);
+        }
+        cat_redirect('charpentes', 'saved');
+    }
+    if ($action === 'delete_charpente') {
+        archicad_catalogue_delete('charpentes', trim((string) ($_POST['id'] ?? '')));
+        cat_redirect('charpentes', 'deleted');
     }
 
     // ----- Enveloppe (murs, planchers, surfaces, toitures) -----
@@ -389,6 +490,8 @@ if ($flash === 'saved') {
 $csrf = archicad_admin_csrf_token();
 $menuiseries = archicad_load_catalogue('menuiseries');
 $modules = archicad_load_catalogue('modules');
+$formes = archicad_load_catalogue('formes');
+$charpentes = archicad_load_catalogue('charpentes');
 $murs = archicad_load_catalogue('murs');
 $planchers = archicad_load_catalogue('planchers');
 $facades = archicad_load_catalogue('surfaces');
@@ -399,6 +502,7 @@ $typeLabels = ['baie' => 'Baie vitrée', 'fenetre' => 'Fenêtre', 'porte' => 'Po
 $toitureLabels = array_column($toitures, 'nom', 'id');
 $toitureTypeOf = array_column($toitures, 'type', 'id');
 $toitureTypeLabels = array_column($toitureTypes, 'nom', 'id');
+$formeNames = array_column($formes, 'nom', 'id');
 $murNames = array_column($murs, 'nom', 'id');
 $plancherNames = array_column($planchers, 'nom', 'id');
 $facadeNames = array_column($facades, 'nom', 'id');
@@ -406,12 +510,18 @@ $facadeNames = array_column($facades, 'nom', 'id');
 $new = isset($_GET['new']);
 $editMenuiserie = null;
 $editModule = null;
+$editForme = null;
+$editCharpente = null;
 $editEnv = ['sous' => '', 'item' => null];
 if (($editId = trim((string) ($_GET['edit'] ?? ''))) !== '') {
     if ($section === 'menuiseries') {
         $editMenuiserie = archicad_catalogue_find('menuiseries', $editId);
     } elseif ($section === 'modules') {
         $editModule = archicad_catalogue_find('modules', $editId);
+    } elseif ($section === 'formes') {
+        $editForme = archicad_catalogue_find('formes', $editId);
+    } elseif ($section === 'charpentes') {
+        $editCharpente = archicad_catalogue_find('charpentes', $editId);
     } elseif (in_array($section, ['murs', 'planchers', 'toitures', 'surfaces'], true)) {
         $sous = $section;
         $editEnv = ['sous' => $sous, 'item' => archicad_catalogue_find($sous, $editId)];
@@ -432,6 +542,8 @@ include __DIR__ . '/../includes/admin-head.php';
 
       <nav class="admin-tabs">
         <a href="configurateur.php?section=modules"<?= $section === 'modules' ? ' class="active"' : '' ?>>Modules</a>
+        <a href="configurateur.php?section=formes"<?= $section === 'formes' ? ' class="active"' : '' ?>>Formes</a>
+        <a href="configurateur.php?section=charpentes"<?= $section === 'charpentes' ? ' class="active"' : '' ?>>Charpentes</a>
         <a href="configurateur.php?section=murs"<?= $section === 'murs' ? ' class="active"' : '' ?>>Murs</a>
         <a href="configurateur.php?section=planchers"<?= $section === 'planchers' ? ' class="active"' : '' ?>>Planchers</a>
         <a href="configurateur.php?section=toitures"<?= $section === 'toitures' ? ' class="active"' : '' ?>>Toitures</a>
@@ -548,7 +660,7 @@ include __DIR__ . '/../includes/admin-head.php';
     <?php elseif ($section === 'modules'): ?>
     <div class="admin-card">
       <h2>Modules (<?= count($modules) ?>) <?= cat_btn_add('configurateur.php?section=modules&new=1', 'Ajouter un module') ?></h2>
-      <p class="admin-hint">Le client choisit un modèle dans ce catalogue (onglet « Module » du configurateur) : longueur, largeur, hauteur sous plafond, pente, pignon <strong>et éléments d'enveloppe liés (mur, plancher, toiture)</strong> sont définis par le modèle — le client ne peut pas les modifier, ils lui sont présentés en lecture seule. La surface extérieure est celle du mur choisi.</p>
+      <p class="admin-hint">Le client choisit un modèle dans ce catalogue (onglet « Module » du configurateur) : longueur, largeur, hauteur sous plafond, forme de toiture (pente, pignon) <strong>et éléments d'enveloppe liés (mur, plancher, toiture)</strong> sont définis par le modèle — le client ne peut pas les modifier, ils lui sont présentés en lecture seule. La surface extérieure est celle du mur choisi.</p>
       <?php if ($modules === []): ?>
         <p class="admin-hint">Aucun modèle de module dans le catalogue pour le moment.</p>
       <?php else: ?>
@@ -558,6 +670,7 @@ include __DIR__ . '/../includes/admin-head.php';
               <th>Visuel</th>
               <th>Nom</th>
               <th>Géométrie</th>
+              <th>Forme</th>
               <th>Toiture</th>
               <th>Actions</th>
             </tr>
@@ -568,7 +681,8 @@ include __DIR__ . '/../includes/admin-head.php';
                 <td><?= cat_thumb($mod) ?></td>
                 <td><strong><?= htmlspecialchars((string) $mod['nom']) ?></strong></td>
                 <td><?= cat_cm((float) $mod['longueur']) ?> × <?= cat_cm((float) $mod['largeur']) ?> — h <?= cat_cm((float) $mod['hauteur']) ?></td>
-                <td><?= htmlspecialchars($toitureLabels[$mod['toiture'] ?? ''] ?? (string) ($mod['toiture'] ?? '')) ?><?= $ttype !== '' && $ttype !== 'terrasse' ? ' — pente ' . (int) ($mod['pente'] ?? 0) . '°' : '' ?><?= $ttype === 'deuxpentes' ? ((!empty($mod['pignon'])) ? ', pignon' : ', croupe') : '' ?></td>
+                <td><?= htmlspecialchars($formeNames[$mod['forme'] ?? ''] ?? (string) ($mod['forme'] ?? '—')) ?><?= $ttype !== '' && $ttype !== 'terrasse' ? ' — pente ' . (int) ($mod['pente'] ?? 0) . '°' : '' ?><?= $ttype === 'deuxpentes' ? ((!empty($mod['pignon'])) ? ', pignon' : ', croupe') : '' ?></td>
+                <td><?= htmlspecialchars($toitureLabels[$mod['toiture'] ?? ''] ?? (string) ($mod['toiture'] ?? '')) ?></td>
                 <td class="admin-actions">
                   <?= cat_action_edit('configurateur.php?section=modules&edit=' . urlencode((string) $mod['id'])) ?>
                   <?= cat_action_delete('configurateur.php?section=modules', $csrf, 'delete_module', (string) $mod['id'], 'Supprimer ce modèle de module du catalogue ?') ?>
@@ -619,11 +733,12 @@ include __DIR__ . '/../includes/admin-head.php';
         </div>
         <div class="modal-row">
           <div class="admin-form-row">
-            <label for="mod-pente">Pente (°)</label>
-            <input type="number" id="mod-pente" name="pente" step="1" min="0" max="45" value="<?= htmlspecialchars((string) ($editModule['pente'] ?? '15')) ?>">
-          </div>
-          <div class="admin-form-row admin-form-check">
-            <label><input type="checkbox" name="pignon" value="1"<?= !isset($editModule) || !empty($editModule['pignon']) ? ' checked' : '' ?>> Pignon sur les petits côtés (toiture deux pentes, sinon croupe)</label>
+            <label for="mod-forme">Forme de toiture (pente, pignon — onglet « Formes »)</label>
+            <select id="mod-forme" name="forme">
+              <?php foreach ($formes as $fo): ?>
+                <option value="<?= htmlspecialchars((string) $fo['id']) ?>"<?= (($editModule['forme'] ?? ($formes[0]['id'] ?? '')) === $fo['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $fo['nom']) ?> — pente <?= (int) ($fo['pente'] ?? 0) ?>°<?= !empty($fo['pignon']) ? ', pignon' : ', croupe' ?></option>
+              <?php endforeach; ?>
+            </select>
           </div>
         </div>
         <hr class="admin-sep">
@@ -657,6 +772,168 @@ include __DIR__ . '/../includes/admin-head.php';
         <div class="admin-actions">
           <button type="submit" class="btn btn-cta">Enregistrer</button>
           <a href="configurateur.php?section=modules" class="btn btn-secondary">Annuler</a>
+        </div>
+      </form>
+    </div>
+    <?php modal_close(); endif; ?>
+
+    <?php elseif ($section === 'formes'): ?>
+    <div class="admin-card">
+      <h2>Formes de toiture (<?= count($formes) ?>) <?= cat_btn_add('configurateur.php?section=formes&new=1', 'Ajouter une forme') ?></h2>
+      <p class="admin-hint">Formes de toiture proposées dans les modules : la pente et la présence d'un pignon (toiture deux pentes, sinon croupe) sont définies ici, puis référencées par chaque module. Le visuel est affiché dans le configurateur.</p>
+      <?php if ($formes === []): ?>
+        <p class="admin-hint">Aucune forme de toiture dans le catalogue pour le moment.</p>
+      <?php else: ?>
+        <table class="admin-table">
+          <thead>
+            <tr><th>Visuel</th><th>Nom</th><th>Pente</th><th>Pignon</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            <?php foreach ($formes as $fo): ?>
+              <tr>
+                <td><?= cat_thumb($fo) ?></td>
+                <td><strong><?= htmlspecialchars((string) $fo['nom']) ?></strong></td>
+                <td><?= (int) ($fo['pente'] ?? 0) ?>°</td>
+                <td><?= !empty($fo['pignon']) ? 'Oui' : 'Non (croupe)' ?></td>
+                <td class="admin-actions">
+                  <?= cat_action_edit('configurateur.php?section=formes&edit=' . urlencode((string) $fo['id'])) ?>
+                  <?= cat_action_delete('configurateur.php?section=formes', $csrf, 'delete_forme', (string) $fo['id'], 'Supprimer cette forme de toiture du catalogue ?') ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+    </div>
+    <?php if ($editForme || $new): modal_open('configurateur.php?section=formes'); ?>
+    <div class="admin-card">
+      <h2><?= $editForme ? 'Modifier : ' . htmlspecialchars((string) $editForme['nom']) : 'Ajouter une forme de toiture' ?></h2>
+      <form method="post" action="configurateur.php?section=formes" enctype="multipart/form-data">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
+        <input type="hidden" name="action" value="save_forme">
+        <input type="hidden" name="id" value="<?= htmlspecialchars((string) ($editForme['id'] ?? '')) ?>">
+        <div class="modal-visual-row">
+          <?php if ($editForme && ($editForme['image'] ?? '') !== ''): ?>
+            <img src="../<?= ltrim(htmlspecialchars((string) $editForme['image']), '/') ?>" alt="" class="modal-visual-img">
+            <label class="admin-hint"><input type="checkbox" name="remove_image" value="1"> Supprimer le visuel</label>
+          <?php endif; ?>
+          <label for="fo-image">Visuel (image)</label>
+          <input type="file" id="fo-image" name="image" accept="image/*">
+          <span class="admin-hint">JPG, PNG, WebP ou GIF — 5 Mo max.</span>
+        </div>
+        <hr class="admin-sep">
+        <div class="modal-row">
+          <div class="admin-form-row">
+            <label for="fo-nom">Nom</label>
+            <input type="text" id="fo-nom" name="nom" required value="<?= htmlspecialchars((string) ($editForme['nom'] ?? '')) ?>" placeholder="Deux pentes 45° — pignon">
+          </div>
+        </div>
+        <hr class="admin-sep">
+        <div class="modal-row">
+          <div class="admin-form-row">
+            <label for="fo-pente">Pente (°)</label>
+            <input type="number" id="fo-pente" name="pente" step="1" min="0" max="90" required value="<?= htmlspecialchars((string) ($editForme['pente'] ?? '30')) ?>">
+          </div>
+          <div class="admin-form-row admin-form-check">
+            <label><input type="checkbox" name="pignon" value="1"<?= !isset($editForme) || !empty($editForme['pignon']) ? ' checked' : '' ?>> Pignon sur les petits côtés (toiture deux pentes, sinon croupe)</label>
+          </div>
+        </div>
+        <div class="admin-actions">
+          <button type="submit" class="btn btn-cta">Enregistrer</button>
+          <a href="configurateur.php?section=formes" class="btn btn-secondary">Annuler</a>
+        </div>
+      </form>
+    </div>
+    <?php modal_close(); endif; ?>
+
+    <?php elseif ($section === 'charpentes'): ?>
+    <div class="admin-card">
+      <h2>Charpentes (<?= count($charpentes) ?>) <?= cat_btn_add('configurateur.php?section=charpentes&new=1', 'Ajouter une charpente') ?></h2>
+      <p class="admin-hint">Charpentes (à l'identique des ouvrants) : visuel, nom, épaisseur, couleur, coût unitaire et référence Archicad.</p>
+      <?php if ($charpentes === []): ?>
+        <p class="admin-hint">Aucune charpente dans le catalogue pour le moment.</p>
+      <?php else: ?>
+        <table class="admin-table">
+          <thead>
+            <tr><th>Visuel</th><th>Nom</th><th>Épaisseur</th><th>Couleur</th><th>Référence Archicad</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            <?php foreach ($charpentes as $ch): $rgbC = $ch['rgb'] ?? [140, 107, 89]; ?>
+              <tr>
+                <td><?= cat_thumb($ch) ?></td>
+                <td><strong><?= htmlspecialchars((string) $ch['nom']) ?></strong></td>
+                <td><?= cat_cm((float) ($ch['epaisseur'] ?? 0.20)) ?></td>
+                <td><span class="admin-color-swatch" style="background-color: <?= cat_hex($rgbC) ?>;"></span> <?= cat_hex($rgbC) ?></td>
+                <td><?= ($ch['favori'] ?? '') !== '' ? htmlspecialchars((string) $ch['favori']) : '—' ?></td>
+                <td class="admin-actions">
+                  <?= cat_action_edit('configurateur.php?section=charpentes&edit=' . urlencode((string) $ch['id'])) ?>
+                  <?= cat_action_delete('configurateur.php?section=charpentes', $csrf, 'delete_charpente', (string) $ch['id'], 'Supprimer cette charpente du catalogue ?') ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+    </div>
+    <?php if ($editCharpente || $new): modal_open('configurateur.php?section=charpentes'); ?>
+    <div class="admin-card">
+      <h2><?= $editCharpente ? 'Modifier : ' . htmlspecialchars((string) $editCharpente['nom']) : 'Ajouter une charpente' ?></h2>
+      <form method="post" action="configurateur.php?section=charpentes" enctype="multipart/form-data">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
+        <input type="hidden" name="action" value="save_charpente">
+        <input type="hidden" name="id" value="<?= htmlspecialchars((string) ($editCharpente['id'] ?? '')) ?>">
+        <div class="modal-visual-row">
+          <?php if ($editCharpente && ($editCharpente['image'] ?? '') !== ''): ?>
+            <img src="../<?= ltrim(htmlspecialchars((string) $editCharpente['image']), '/') ?>" alt="" class="modal-visual-img">
+            <label class="admin-hint"><input type="checkbox" name="remove_image" value="1"> Supprimer le visuel</label>
+          <?php endif; ?>
+          <label for="ch-image">Visuel (image)</label>
+          <input type="file" id="ch-image" name="image" accept="image/*">
+          <span class="admin-hint">JPG, PNG, WebP ou GIF — 5 Mo max.</span>
+        </div>
+        <hr class="admin-sep">
+        <div class="modal-row">
+          <div class="admin-form-row">
+            <label for="ch-nom">Nom</label>
+            <input type="text" id="ch-nom" name="nom" required value="<?= htmlspecialchars((string) ($editCharpente['nom'] ?? '')) ?>" placeholder="Charpente traditionnelle">
+          </div>
+        </div>
+        <hr class="admin-sep">
+        <div class="modal-row">
+          <div class="admin-form-row">
+            <label for="ch-epaisseur">Épaisseur (cm)</label>
+            <input type="number" id="ch-epaisseur" name="epaisseur" step="0.1" min="1" required value="<?= htmlspecialchars($editCharpente ? cat_cm_input((float) ($editCharpente['epaisseur'] ?? 0.20)) : '20') ?>">
+          </div>
+        </div>
+        <div class="modal-row">
+          <div class="admin-form-row">
+            <?php $rgbCh = $editCharpente['rgb'] ?? [140, 107, 89]; ?>
+            <label>Couleur (aperçu, affichée en hex <?= cat_hex($rgbCh) ?>)</label>
+            <div class="admin-color-inputs">
+              <input type="number" name="r" min="0" max="255" value="<?= (int) ($rgbCh[0] ?? 0) ?>" aria-label="Rouge">
+              <input type="number" name="g" min="0" max="255" value="<?= (int) ($rgbCh[1] ?? 0) ?>" aria-label="Vert">
+              <input type="number" name="b" min="0" max="255" value="<?= (int) ($rgbCh[2] ?? 0) ?>" aria-label="Bleu">
+              <span class="admin-color-swatch" style="background-color: <?= cat_hex($rgbCh) ?>;"></span>
+            </div>
+          </div>
+        </div>
+        <hr class="admin-sep">
+        <div class="modal-row">
+          <div class="admin-form-row">
+            <label for="ch-tarif">Coût unitaire (€)</label>
+            <input type="number" id="ch-tarif" name="tarif" step="0.01" min="0" value="<?= htmlspecialchars((string) ($editCharpente['tarif'] ?? '0')) ?>">
+          </div>
+        </div>
+        <hr class="admin-sep">
+        <div class="modal-row">
+          <div class="admin-form-row">
+            <label for="ch-favori">Référence Archicad</label>
+            <input type="text" id="ch-favori" name="favori" value="<?= htmlspecialchars((string) ($editCharpente['favori'] ?? '')) ?>" placeholder="Nom de la référence Archicad (ex. Baracca — Charpente), vide = aucune">
+          </div>
+        </div>
+        <div class="admin-actions">
+          <button type="submit" class="btn btn-cta">Enregistrer</button>
+          <a href="configurateur.php?section=charpentes" class="btn btn-secondary">Annuler</a>
         </div>
       </form>
     </div>
