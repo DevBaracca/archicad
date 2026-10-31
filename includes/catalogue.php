@@ -142,7 +142,7 @@ function archicad_catalogue_defaults(string $kind): array
             // différente par versant (pente1 / pente2). Un modèle de module
             // référence l'id d'une forme.
             return [
-                ['id' => 'forme-monopente-15', 'nom' => 'Monopente 15°', 'geometrie' => 'monopente', 'pente' => 15, 'pente1' => 15, 'pente2' => 15, 'pignon' => false, 'image' => '', 'created' => $today],
+                ['id' => 'forme-monopente-15', 'nom' => 'Monopente 15°', 'geometrie' => 'monopente', 'pente' => 15, 'pente1' => 15, 'pente2' => 15, 'pignon' => false, 'defaut' => true, 'image' => '', 'created' => $today],
                 ['id' => 'forme-deuxpentes-30', 'nom' => 'Deux pentes 30° / 30°', 'geometrie' => 'deuxpentes', 'pente' => 30, 'pente1' => 30, 'pente2' => 30, 'pignon' => true, 'image' => '', 'created' => $today],
                 ['id' => 'forme-deuxpentes-45', 'nom' => 'Deux pentes 45° / 45°', 'geometrie' => 'deuxpentes', 'pente' => 45, 'pente1' => 45, 'pente2' => 45, 'pignon' => true, 'image' => '', 'created' => $today],
                 ['id' => 'forme-quatrepentes-30', 'nom' => 'Quatre pentes 30° (croupe)', 'geometrie' => 'quatrepentes', 'pente' => 30, 'pente1' => 30, 'pente2' => 30, 'pignon' => false, 'image' => '', 'created' => $today],
@@ -151,7 +151,7 @@ function archicad_catalogue_defaults(string $kind): array
             // Charpentes (à l'identique des ouvrants : visuel, nom, épaisseur,
             // couleur, coût unitaire, référence Archicad)
             return [
-                ['id' => 'charpente-tradi', 'nom' => 'Charpente traditionnelle', 'epaisseur' => 0.20, 'image' => '', 'rgb' => [140, 107, 89], 'favori' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'charpente-tradi', 'nom' => 'Charpente traditionnelle', 'epaisseur' => 0.20, 'defaut' => true, 'image' => '', 'rgb' => [140, 107, 89], 'favori' => '', 'tarif' => 0, 'created' => $today],
             ];
         case 'isolation':
             // Isolation : type de mur, de plancher et de toiture (références
@@ -161,15 +161,16 @@ function archicad_catalogue_defaults(string $kind): array
             $planchers = archicad_load_catalogue('planchers');
             $toitures = archicad_load_catalogue('toitures');
             return [
-                ['id' => 'isolation-standard', 'nom' => 'Isolation standard', 'mur' => (string) ($murs[0]['id'] ?? ''), 'plancher' => (string) ($planchers[0]['id'] ?? ''), 'toiture' => (string) ($toitures[0]['id'] ?? ''), 'image' => '', 'favori' => '', 'created' => $today],
+                ['id' => 'isolation-standard', 'nom' => 'Isolation standard', 'defaut' => true, 'mur' => (string) ($murs[0]['id'] ?? ''), 'plancher' => (string) ($planchers[0]['id'] ?? ''), 'toiture' => (string) ($toitures[0]['id'] ?? ''), 'image' => '', 'favori' => '', 'created' => $today],
             ];
         case 'modules':
-            // Un modèle de module ne définit plus que sa géométrie (longueur,
-            // largeur, hauteur sous plafond) + visuel — l'isolation, la forme de
-            // toiture et l'enveloppe sont choisies côté client
+            // Un modèle de module définit sa géométrie (longueur, largeur,
+            // hauteur sous plafond), son visuel, et pour chaque côté s'il
+            // s'agit d'un mur ou d'une charpente (faces : nord/est/sud/ouest)
+            $facesAllMur = ['nord' => 'mur', 'est' => 'mur', 'sud' => 'mur', 'ouest' => 'mur'];
             return [
-                ['id' => 'module-6x3', 'nom' => 'Module 6,00 × 3,00 m — h 2,80 m', 'longueur' => 6.0, 'largeur' => 3.0, 'hauteur' => 2.8, 'image' => '', 'tarif' => 0, 'created' => $today],
-                ['id' => 'module-9x36', 'nom' => 'Module 9,00 × 3,60 m — h 2,80 m', 'longueur' => 9.0, 'largeur' => 3.6, 'hauteur' => 2.8, 'image' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'module-6x3', 'nom' => 'Module 6,00 × 3,00 m — h 2,80 m', 'defaut' => true, 'longueur' => 6.0, 'largeur' => 3.0, 'hauteur' => 2.8, 'faces' => $facesAllMur, 'image' => '', 'tarif' => 0, 'created' => $today],
+                ['id' => 'module-9x36', 'nom' => 'Module 9,00 × 3,60 m — h 2,80 m', 'longueur' => 9.0, 'largeur' => 3.6, 'hauteur' => 2.8, 'faces' => $facesAllMur, 'image' => '', 'tarif' => 0, 'created' => $today],
             ];
         case 'murs':
             // favori = nom du favori Archicad à utiliser ('' = aucun, à
@@ -199,13 +200,13 @@ function archicad_catalogue_defaults(string $kind): array
                 ['id' => 'brique', 'nom' => 'Brique de parement', 'image' => '', 'tarif' => 0, 'created' => $today],
             ];
         case 'toitures':
-            // Rubrique toiture (à l'identique des murs) : type = géométrie
-            // (monopente/deux pentes/terrasse), épaisseur (m) dessinée au-dessus
-            // de la ligne directrice en élévation, surface, couleur, favori.
+            // Rubrique toiture : épaisseur (m) dessinée au-dessus de la ligne
+            // directrice en élévation, surface, couleur, favori — la géométrie
+            // (monopente/deux pentes/terrasse) se règle dans la rubrique « Formes »
             return [
-                ['id' => 'toit-monopente', 'nom' => 'Toiture monopente', 'type' => 'monopente', 'epaisseur' => 0.30, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture monopente', 'tarif' => 0, 'created' => $today],
-                ['id' => 'toit-deuxpentes', 'nom' => 'Toiture deux pentes', 'type' => 'deuxpentes', 'epaisseur' => 0.30, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture deux pentes', 'tarif' => 0, 'created' => $today],
-                ['id' => 'toit-terrasse', 'nom' => 'Terrasse plate', 'type' => 'terrasse', 'epaisseur' => 0.25, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture terrasse', 'tarif' => 0, 'created' => $today],
+                ['id' => 'toit-monopente', 'nom' => 'Toiture monopente', 'epaisseur' => 0.30, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture monopente', 'tarif' => 0, 'created' => $today],
+                ['id' => 'toit-deuxpentes', 'nom' => 'Toiture deux pentes', 'epaisseur' => 0.30, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture deux pentes', 'tarif' => 0, 'created' => $today],
+                ['id' => 'toit-terrasse', 'nom' => 'Terrasse plate', 'epaisseur' => 0.25, 'image' => '', 'surface' => '', 'rgb' => [120, 113, 108], 'favori' => 'Baracca — Toiture terrasse', 'tarif' => 0, 'created' => $today],
             ];
     }
     return [];
@@ -222,15 +223,14 @@ function archicad_catalogue_toitures(): array
 }
 
 /**
- * Géométries de toiture possibles (vocabulaire fixe) — champ « type » des
- * éléments de la rubrique toitures.
+ * Nature d'un côté de module : mur (plein) ou charpente (pan de toiture,
+ * le côté n'est pas un mur).
  */
-function archicad_catalogue_toiture_types(): array
+function archicad_catalogue_face_types(): array
 {
     return [
-        ['id' => 'monopente', 'nom' => 'Monopente'],
-        ['id' => 'deuxpentes', 'nom' => 'Deux pentes'],
-        ['id' => 'terrasse', 'nom' => 'Terrasse plate'],
+        ['id' => 'mur', 'nom' => 'Mur'],
+        ['id' => 'charpente', 'nom' => 'Charpente'],
     ];
 }
 
@@ -245,6 +245,66 @@ function archicad_catalogue_forme_geometries(): array
         ['id' => 'deuxpentes', 'nom' => 'Deux pentes (pignon)'],
         ['id' => 'quatrepentes', 'nom' => 'Quatre pentes (croupe)'],
     ];
+}
+
+// Rubriques dont un élément peut être marqué « par défaut » (appliqué à la
+// première ouverture du configurateur côté client)
+function archicad_catalogue_defaultable_kinds(): array
+{
+    return ['modules', 'isolation', 'formes', 'charpentes'];
+}
+
+/**
+ * Normalise le champ « defaut » (booléen) des rubriques defaultable et, si
+ * aucun élément n'est marqué par défaut, marque le premier.
+ */
+function archicad_catalogue_normalize_defaut(string $kind, array $items): array
+{
+    if (!in_array($kind, archicad_catalogue_defaultable_kinds(), true)) {
+        return $items;
+    }
+    $changed = false;
+    $hasDefaut = false;
+    foreach ($items as $i => $item) {
+        $v = !empty($item['defaut']);
+        if (!$v) {
+            $items[$i]['defaut'] = false;
+            $changed = true;
+        } else {
+            $hasDefaut = true;
+        }
+    }
+    if (!$hasDefaut && isset($items[0])) {
+        $items[0]['defaut'] = true;
+        $changed = true;
+    }
+    if ($changed) {
+        archicad_save_catalogue($kind, $items);
+    }
+    return $items;
+}
+
+/**
+ * Marque un élément comme « par défaut » et retire le drapeau des autres
+ * éléments de la rubrique (un seul défaut par rubrique).
+ */
+function archicad_catalogue_set_default(string $kind, string $id): void
+{
+    if (!in_array($kind, archicad_catalogue_defaultable_kinds(), true)) {
+        return;
+    }
+    $items = archicad_load_catalogue($kind);
+    $changed = false;
+    foreach ($items as $i => $item) {
+        $v = (($item['id'] ?? '') === $id);
+        if (!empty($item['defaut']) !== $v) {
+            $items[$i]['defaut'] = $v;
+            $changed = true;
+        }
+    }
+    if ($changed) {
+        archicad_save_catalogue($kind, $items);
+    }
 }
 
 function archicad_save_catalogue(string $kind, array $items): bool
@@ -280,6 +340,7 @@ function archicad_load_catalogue(string $kind): array
             $items[$i]['image'] = '';
         }
     }
+    $items = archicad_catalogue_normalize_defaut($kind, $items);
     if ($kind === 'murs' || $kind === 'toitures') {
         // Surface par défaut = première surface du catalogue surfaces.json
         $firstSurface = (string) (archicad_load_catalogue('surfaces')[0]['id'] ?? '');
@@ -308,9 +369,13 @@ function archicad_load_catalogue(string $kind): array
         }
     }
     if ($kind === 'toitures') {
+        // Migration : la géométrie (champ « type ») quitte la rubrique toitures
+        // (elle se règle dans la rubrique « formes »)
+        $changedToitures = false;
         foreach ($items as $i => $item) {
-            if (empty($item['type'])) {
-                $items[$i]['type'] = 'monopente';
+            if (array_key_exists('type', $items[$i])) {
+                unset($items[$i]['type']);
+                $changedToitures = true;
             }
             if (empty($item['epaisseur'])) {
                 $items[$i]['epaisseur'] = 0.30;
@@ -318,6 +383,9 @@ function archicad_load_catalogue(string $kind): array
             if (empty($item['rgb'])) {
                 $items[$i]['rgb'] = [120, 113, 108];
             }
+        }
+        if ($changedToitures) {
+            archicad_save_catalogue('toitures', $items);
         }
     }
     if ($kind === 'formes') {
@@ -394,6 +462,20 @@ function archicad_load_catalogue(string $kind): array
                     $changedModules = true;
                 }
             }
+            // Chaque côté du module : mur ou charpente (défaut mur)
+            $facesOld = $item['faces'] ?? null;
+            $faces = [];
+            foreach (['nord', 'est', 'sud', 'ouest'] as $fk) {
+                $v = is_array($facesOld) ? (string) ($facesOld[$fk] ?? 'mur') : 'mur';
+                if (!in_array($v, ['mur', 'charpente'], true)) {
+                    $v = 'mur';
+                }
+                $faces[$fk] = $v;
+                if (!is_array($facesOld) || ($facesOld[$fk] ?? null) !== $v) {
+                    $changedModules = true;
+                }
+            }
+            $items[$i]['faces'] = $faces;
         }
         if ($changedModules) {
             archicad_save_catalogue('modules', $items);

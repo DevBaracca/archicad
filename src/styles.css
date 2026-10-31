@@ -23,6 +23,7 @@ body {
 .app { max-width: 1150px; margin: 0 auto; padding: 24px 20px 48px; }
 
 header.top { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+header.top .top-actions { display: flex; align-items: center; gap: 10px; }
 header.top h1 { font-size: 1.45rem; margin: 0; }
 header.top p { margin: 4px 0 0; color: var(--muted); font-size: 0.85rem; }
 
@@ -175,6 +176,15 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
   border-top: 1px solid var(--border);
   border-radius: 0 0 9px 9px;
 }
+
+/* cartes repliables (Chiffrage estimatif, Sauvegardes) : flèche dans la bande verte,
+   carte fermée = bande grise seule en bas de carte */
+.card-title.card-toggle { cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none; }
+.card-title.card-toggle .carac-arrow { border-color: #fff; }
+.chiffrage-total.solo { margin: 0; border-radius: 0 0 var(--radius) var(--radius); }
+
+/* plan : pastille mur/charpente sur chaque face */
+.plan-face-toggle { cursor: pointer; }
 .chiffrage-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 3px 0; }
 .chiffrage-row .k { font-size: 0.85rem; font-weight: 600; color: var(--text); }
 .chiffrage-row .v { font-size: 0.95rem; font-weight: 600; color: var(--text); }

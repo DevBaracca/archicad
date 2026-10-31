@@ -100,6 +100,17 @@ function cat_icon_delete(): string
     return '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>';
 }
 
+// Enregistre le drapeau « par défaut » d'une rubrique (modules, isolation,
+// formes, charpentes) : un seul élément par défaut à la fois
+function cat_save_defaut(string $kind, array $item): void
+{
+    $v = isset($_POST['defaut']);
+    archicad_catalogue_upsert($kind, ['defaut' => $v], (string) $item['id']);
+    if ($v) {
+        archicad_catalogue_set_default($kind, (string) $item['id']);
+    }
+}
+
 // Bouton « + » à côté du titre d'une rubrique (ouvre la boîte d'ajout)
 function cat_btn_add(string $href, string $title): string
 {
@@ -201,21 +212,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'save_module') {
         $id = trim((string) ($_POST['id'] ?? ''));
         $nom = trim((string) ($_POST['nom'] ?? ''));
-        // Saisie en cm (précision mm) — stockage en m
-        $longueur = round(cat_num('longueur') / 100, 3);
-        $largeur = round(cat_num('largeur') / 100, 3);
+        // Saisie en cm — stockage en m ; longueur/largeur : 2 cm mini, 482 cm maxi, paliers de 60 cm
+        $longueur = min(4.82, max(0.02, round(cat_num('longueur') / 100, 3)));
+        $largeur = min(4.82, max(0.02, round(cat_num('largeur') / 100, 3)));
         $hauteur = round(cat_num('hauteur') / 100, 3);
         if ($nom === '' || $longueur <= 0 || $largeur <= 0 || $hauteur <= 0) {
             cat_redirect('modules', 'invalid');
         }
-        // Un module ne définit que sa géométrie : l'isolation (mur, plancher,
-        // toiture), la forme de toiture et les surfaces sont choisis côté
-        // client. Le tarif n'est plus saisi ici mais reste stocké en base.
+        // Un module définit sa géométrie + la nature de chaque côté (mur ou
+        // charpente). L'isolation (mur, plancher, toiture), la forme de
+        // toiture et les surfaces sont choisis côté client. Le tarif n'est
+        // plus saisi ici mais reste stocké en base.
+        $faces = [];
+        foreach (['nord', 'est', 'sud', 'ouest'] as $fk) {
+            $v = (string) ($_POST['face_' . $fk] ?? 'mur');
+            $faces[$fk] = $v === 'charpente' ? 'charpente' : 'mur';
+        }
         $fields = [
             'nom' => $nom,
             'longueur' => $longueur,
             'largeur' => $largeur,
             'hauteur' => $hauteur,
+            'faces' => $faces,
         ];
         if (isset($_POST['tarif'])) {
             $fields['tarif'] = round(cat_num('tarif'), 2);
@@ -243,6 +261,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             archicad_catalogue_upsert('modules', ['image' => (string) $stored['webPath']], (string) $item['id']);
         }
+        cat_save_defaut('modules', $item);
         cat_redirect('modules', 'saved');
     }
     if ($action === 'delete_module') {
@@ -292,6 +311,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             archicad_catalogue_upsert('isolation', ['image' => (string) $stored['webPath']], (string) $item['id']);
         }
+        cat_save_defaut('isolation', $item);
         cat_redirect('isolation', 'saved');
     }
     if ($action === 'delete_isolation') {
@@ -350,6 +370,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             archicad_catalogue_upsert('formes', ['image' => (string) $stored['webPath']], (string) $item['id']);
         }
+        cat_save_defaut('formes', $item);
         cat_redirect('formes', 'saved');
     }
     if ($action === 'delete_forme') {
@@ -400,6 +421,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             archicad_catalogue_upsert('charpentes', ['image' => (string) $stored['webPath']], (string) $item['id']);
         }
+        cat_save_defaut('charpentes', $item);
         cat_redirect('charpentes', 'saved');
     }
     if ($action === 'delete_charpente') {
@@ -454,13 +476,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $fields['epaisseur'] = $epaisseur;
         }
-        if ($sous === 'toitures') {
-            $type = (string) ($_POST['type'] ?? 'monopente');
-            if (!in_array($type, array_column(archicad_catalogue_toiture_types(), 'id'), true)) {
-                $type = 'monopente';
-            }
-            $fields['type'] = $type;
-        }
+        // La géométrie de la toiture ne se règle plus ici (rubrique « Formes »)
         $item = archicad_catalogue_upsert($sous, $fields, $id !== '' ? $id : null);
         // Chaque rubrique a son propre onglet : on y retourne après sauvegarde
         $destSection = $sous;
@@ -531,12 +547,9 @@ $murs = archicad_load_catalogue('murs');
 $planchers = archicad_load_catalogue('planchers');
 $facades = archicad_load_catalogue('surfaces');
 $toitures = archicad_catalogue_toitures();
-$toitureTypes = archicad_catalogue_toiture_types();
 
 $typeLabels = ['baie' => 'Baie vitrée', 'fenetre' => 'Fenêtre', 'porte' => 'Porte'];
 $toitureLabels = array_column($toitures, 'nom', 'id');
-$toitureTypeOf = array_column($toitures, 'type', 'id');
-$toitureTypeLabels = array_column($toitureTypes, 'nom', 'id');
 $formeNames = array_column($formes, 'nom', 'id');
 $formeGeometries = archicad_catalogue_forme_geometries();
 $formeGeoLabels = array_column($formeGeometries, 'nom', 'id');
@@ -573,6 +586,8 @@ if ($envSous === '' && $new && in_array($section, ['murs', 'planchers', 'toiture
     $envSous = $section;
 }
 
+$pageTitle = 'Configurateur';
+$adminPage = 'configurateur'; // classe de page admin-configurateur (fond façon client)
 include __DIR__ . '/../includes/admin-head.php';
 ?>
 
@@ -580,17 +595,44 @@ include __DIR__ . '/../includes/admin-head.php';
       <p class="admin-flash <?= $flashMessage[0] ?>"><?= htmlspecialchars($flashMessage[1]) ?></p>
     <?php endif; ?>
 
-      <nav class="admin-tabs">
-        <a href="configurateur.php?section=modules"<?= $section === 'modules' ? ' class="active"' : '' ?>>Modules</a>
-        <a href="configurateur.php?section=isolation"<?= $section === 'isolation' ? ' class="active"' : '' ?>>Isolation</a>
-        <a href="configurateur.php?section=formes"<?= $section === 'formes' ? ' class="active"' : '' ?>>Formes</a>
-        <a href="configurateur.php?section=charpentes"<?= $section === 'charpentes' ? ' class="active"' : '' ?>>Charpentes</a>
-        <a href="configurateur.php?section=murs"<?= $section === 'murs' ? ' class="active"' : '' ?>>Murs</a>
-        <a href="configurateur.php?section=planchers"<?= $section === 'planchers' ? ' class="active"' : '' ?>>Planchers</a>
-        <a href="configurateur.php?section=toitures"<?= $section === 'toitures' ? ' class="active"' : '' ?>>Toitures</a>
-        <a href="configurateur.php?section=menuiseries"<?= $section === 'menuiseries' ? ' class="active"' : '' ?>>Ouvrants</a>
-        <a href="configurateur.php?section=surfaces"<?= $section === 'surfaces' ? ' class="active"' : '' ?>>Surfaces</a>
+<?php
+// Trois cartes façon client : Structure (Modules, Isolation, Formes),
+// Catalogue (Charpentes, Murs, Planchers, Toitures, Ouvrants), Surfaces.
+// Chaque carte porte ses sous-onglets ; la rubrique active s'ouvre dans sa carte.
+$groupes = [
+    'structure' => ['label' => 'Structure', 'sections' => [
+        ['modules', 'Modules', count($modules)],
+        ['isolation', 'Isolation', count($isolations)],
+        ['formes', 'Formes', count($formes)],
+    ]],
+    'catalogue' => ['label' => 'Catalogue', 'sections' => [
+        ['charpentes', 'Charpentes', count($charpentes)],
+        ['murs', 'Murs', count($murs)],
+        ['planchers', 'Planchers', count($planchers)],
+        ['toitures', 'Toitures', count($toitures)],
+        ['menuiseries', 'Ouvrants', count($menuiseries)],
+    ]],
+    'surfaces' => ['label' => 'Surfaces', 'sections' => [
+        ['surfaces', 'Surfaces', count($facades)],
+    ]],
+];
+$groupeOf = [
+    'modules' => 'structure', 'isolation' => 'structure', 'formes' => 'structure',
+    'charpentes' => 'catalogue', 'murs' => 'catalogue', 'planchers' => 'catalogue',
+    'toitures' => 'catalogue', 'menuiseries' => 'catalogue',
+    'surfaces' => 'surfaces',
+];
+$groupeActif = $groupeOf[$section] ?? 'structure';
+?>
+<?php foreach ($groupes as $gkey => $g): ?>
+    <div class="admin-card admin-groupe<?= $groupeActif === $gkey ? ' actif' : '' ?>">
+      <h2 class="admin-groupe-title"><?= $g['label'] ?></h2>
+      <nav class="admin-tabs admin-subtabs">
+        <?php foreach ($g['sections'] as [$s, $label, $nb]): ?>
+        <a href="configurateur.php?section=<?= $s ?>"<?= $section === $s ? ' class="active"' : '' ?>><?= $label ?> (<?= $nb ?>)</a>
+        <?php endforeach; ?>
       </nav>
+      <?php if ($groupeActif === $gkey): ?>
 
     <?php if ($section === 'menuiseries'): ?>
     <div class="admin-card">
@@ -718,8 +760,8 @@ include __DIR__ . '/../includes/admin-head.php';
             <?php foreach ($modules as $mod): ?>
               <tr>
                 <td><?= cat_thumb($mod) ?></td>
-                <td><strong><?= htmlspecialchars((string) $mod['nom']) ?></strong></td>
-                <td><?= cat_cm((float) $mod['longueur']) ?> × <?= cat_cm((float) $mod['largeur']) ?> — h <?= cat_cm((float) $mod['hauteur']) ?></td>
+                <td><strong><?= htmlspecialchars((string) $mod['nom']) ?></strong><?= !empty($mod['defaut']) ? ' <span class="admin-badge-defaut">défaut</span>' : '' ?></td>
+                <td><?= cat_cm((float) $mod['longueur']) ?> × <?= cat_cm((float) $mod['largeur']) ?> — h <?= cat_cm((float) $mod['hauteur']) ?><?php $ch = array_keys(array_filter($mod['faces'] ?? [], fn($v) => $v === 'charpente')); if ($ch !== []): ?> — charpente : <?= htmlspecialchars(implode(', ', array_map('ucfirst', $ch))) ?><?php endif; ?></td>
                 <td class="admin-actions">
                   <?= cat_action_edit('configurateur.php?section=modules&edit=' . urlencode((string) $mod['id'])) ?>
                   <?= cat_action_delete('configurateur.php?section=modules', $csrf, 'delete_module', (string) $mod['id'], 'Supprimer ce modèle de module du catalogue ?') ?>
@@ -753,21 +795,111 @@ include __DIR__ . '/../includes/admin-head.php';
             <input type="text" id="mod-nom" name="nom" required value="<?= htmlspecialchars((string) ($editModule['nom'] ?? '')) ?>" placeholder="Module 6,00 × 3,00 m — h 2,80 m">
           </div>
         </div>
+        <div class="modal-row">
+          <div class="admin-form-row admin-form-check">
+            <label><input type="checkbox" name="defaut" value="1"<?= !empty($editModule['defaut']) ? ' checked' : '' ?>> Élément par défaut (appliqué à la première ouverture du configurateur)</label>
+          </div>
+        </div>
         <hr class="admin-sep">
         <div class="modal-row">
           <div class="admin-form-row">
             <label for="mod-longueur">Longueur (cm)</label>
-            <input type="number" id="mod-longueur" name="longueur" step="0.1" min="50" required value="<?= htmlspecialchars($editModule ? cat_cm_input((float) $editModule['longueur']) : '600') ?>">
+            <div class="stepper">
+              <button type="button" class="step-btn" data-dir="-1" aria-label="Diminuer la longueur" title="−60 cm"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <input type="number" id="mod-longueur" name="longueur" step="60" min="2" max="482" readonly tabindex="-1" required value="<?= htmlspecialchars($editModule ? cat_cm_input((float) $editModule['longueur']) : '482') ?>">
+              <button type="button" class="step-btn" data-dir="1" aria-label="Augmenter la longueur" title="+60 cm"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+            <span class="admin-hint">De 2 à 482 cm, par paliers de 60 cm (flèches uniquement).</span>
           </div>
           <div class="admin-form-row">
             <label for="mod-largeur">Largeur (cm)</label>
-            <input type="number" id="mod-largeur" name="largeur" step="0.1" min="50" required value="<?= htmlspecialchars($editModule ? cat_cm_input((float) $editModule['largeur']) : '300') ?>">
+            <div class="stepper">
+              <button type="button" class="step-btn" data-dir="-1" aria-label="Diminuer la largeur" title="−60 cm"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <input type="number" id="mod-largeur" name="largeur" step="60" min="2" max="482" readonly tabindex="-1" required value="<?= htmlspecialchars($editModule ? cat_cm_input((float) $editModule['largeur']) : '300') ?>">
+              <button type="button" class="step-btn" data-dir="1" aria-label="Augmenter la largeur" title="+60 cm"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+            <span class="admin-hint">De 2 à 482 cm, par paliers de 60 cm (flèches uniquement).</span>
           </div>
           <div class="admin-form-row">
             <label for="mod-hauteur">Hauteur sous plafond (cm)</label>
             <input type="number" id="mod-hauteur" name="hauteur" step="0.1" min="100" required value="<?= htmlspecialchars($editModule ? cat_cm_input((float) $editModule['hauteur']) : '280') ?>">
           </div>
         </div>
+        <script>
+        (function () {
+          var MIN = 2, MAX = 482, STEP = 60; // comme les positions des fenêtres côté client
+          document.querySelectorAll('.stepper').forEach(function (st) {
+            var inp = st.querySelector('input');
+            st.querySelectorAll('.step-btn').forEach(function (b) {
+              b.addEventListener('click', function () {
+                var v = parseFloat(String(inp.value).replace(',', '.')) || MIN;
+                v = Math.min(MAX, Math.max(MIN, v + parseInt(b.getAttribute('data-dir'), 10) * STEP));
+                inp.value = v;
+              });
+            });
+          });
+        })();
+        </script>
+        <hr class="admin-sep">
+        <p class="admin-sep-label">Nature des côtés du module</p>
+        <?php
+        // Mini-plan du module (comme côté client) : un clic sur un côté bascule
+        // mur / charpente. Charpente = fond clair + contour pointillé.
+        $modFaces = is_array($editModule['faces'] ?? null) ? $editModule['faces'] : [];
+        foreach (['nord', 'est', 'sud', 'ouest'] as $fk) {
+            $modFaces[$fk] = ($modFaces[$fk] ?? 'mur') === 'charpente' ? 'charpente' : 'mur';
+        }
+        $modL = max(0.5, (float) ($editModule['longueur'] ?? 6.0));
+        $modl = max(0.5, (float) ($editModule['largeur'] ?? 3.0));
+        $planW = 340; $planH = 230; $planMargin = 46; $planEp = 16;
+        $planScale = min(($planW - 2 * $planMargin) / $modL, ($planH - 2 * $planMargin) / $modl);
+        $pl = $modL * $planScale; $pb = $modl * $planScale;
+        $px0 = ($planW - $pl) / 2; $py0 = ($planH - $pb) / 2;
+        $faceRect = [
+            'nord' => ['x' => $px0, 'y' => $py0 - $planEp, 'w' => $pl, 'h' => $planEp],
+            'sud' => ['x' => $px0, 'y' => $py0 + $pb, 'w' => $pl, 'h' => $planEp],
+            'ouest' => ['x' => $px0 - $planEp, 'y' => $py0, 'w' => $planEp, 'h' => $pb],
+            'est' => ['x' => $px0 + $pl, 'y' => $py0, 'w' => $planEp, 'h' => $pb],
+        ];
+        ?>
+        <svg id="mod-plan" viewBox="0 0 <?= $planW ?> <?= $planH ?>" style="width:100%;max-width:340px;height:auto;border:1px solid var(--gray-border);border-radius:var(--border-radius);background:#fff;" role="img" aria-label="Plan du module — cliquez un côté pour basculer mur / charpente">
+          <rect x="<?= $px0 ?>" y="<?= $py0 ?>" width="<?= $pl ?>" height="<?= $pb ?>" fill="#faf7f2" stroke="#a8a29e" stroke-dasharray="5 4" />
+          <?php foreach ($faceRect as $fk => $r): ?>
+          <rect class="mod-face <?= $modFaces[$fk] === 'charpente' ? 'charpente' : 'mur' ?>" data-face="<?= $fk ?>"
+            x="<?= $r['x'] ?>" y="<?= $r['y'] ?>" width="<?= $r['w'] ?>" height="<?= $r['h'] ?>" />
+          <?php endforeach; ?>
+        </svg>
+        <p class="admin-hint">Cliquez un côté pour basculer <strong>mur</strong> / <strong>charpente</strong> (charpente : fond clair, contour pointillé — pas de mur sur ce côté).</p>
+        <p class="admin-hint" id="mod-faces-status"></p>
+        <?php foreach (['nord', 'est', 'sud', 'ouest'] as $fk): ?>
+        <input type="hidden" name="face_<?= $fk ?>" id="face_<?= $fk ?>" value="<?= $modFaces[$fk] ?>">
+        <?php endforeach; ?>
+        <script>
+        (function () {
+          var labels = { mur: 'Mur', charpente: 'Charpente' };
+          var status = document.getElementById('mod-faces-status');
+          function refresh() {
+            var parts = [];
+            document.querySelectorAll('#mod-plan .mod-face').forEach(function (r) {
+              var fk = r.getAttribute('data-face');
+              var inp = document.getElementById('face_' + fk);
+              var v = inp ? inp.value : 'mur';
+              r.setAttribute('class', 'mod-face ' + v);
+              parts.push(fk.charAt(0).toUpperCase() + fk.slice(1) + ' : ' + (labels[v] || v));
+            });
+            if (status) status.textContent = parts.join(' — ');
+          }
+          document.querySelectorAll('#mod-plan .mod-face').forEach(function (r) {
+            r.addEventListener('click', function () {
+              var fk = r.getAttribute('data-face');
+              var inp = document.getElementById('face_' + fk);
+              if (inp) inp.value = inp.value === 'mur' ? 'charpente' : 'mur';
+              refresh();
+            });
+          });
+          refresh();
+        })();
+        </script>
         <hr class="admin-sep">
         <p class="admin-hint">Un module ne définit que sa géométrie : l'isolation (mur, plancher, toiture) se choisit dans l'onglet « Isolation », la forme de toiture dans l'onglet « Formes ».</p>
         <div class="admin-actions">
@@ -793,7 +925,7 @@ include __DIR__ . '/../includes/admin-head.php';
             <?php foreach ($isolations as $iso): ?>
               <tr>
                 <td><?= cat_thumb($iso) ?></td>
-                <td><strong><?= htmlspecialchars((string) $iso['nom']) ?></strong></td>
+                <td><strong><?= htmlspecialchars((string) $iso['nom']) ?></strong><?= !empty($iso['defaut']) ? ' <span class="admin-badge-defaut">défaut</span>' : '' ?></td>
                 <td><?= htmlspecialchars($murNames[$iso['mur'] ?? ''] ?? (string) ($iso['mur'] ?? '—')) ?></td>
                 <td><?= htmlspecialchars($plancherNames[$iso['plancher'] ?? ''] ?? (string) ($iso['plancher'] ?? '—')) ?></td>
                 <td><?= htmlspecialchars($toitureLabels[$iso['toiture'] ?? ''] ?? (string) ($iso['toiture'] ?? '—')) ?></td>
@@ -828,6 +960,11 @@ include __DIR__ . '/../includes/admin-head.php';
           <div class="admin-form-row">
             <label for="iso-nom">Nom</label>
             <input type="text" id="iso-nom" name="nom" required value="<?= htmlspecialchars((string) ($editIsolation['nom'] ?? '')) ?>" placeholder="Isolation standard">
+          </div>
+        </div>
+        <div class="modal-row">
+          <div class="admin-form-row admin-form-check">
+            <label><input type="checkbox" name="defaut" value="1"<?= !empty($editIsolation['defaut']) ? ' checked' : '' ?>> Élément par défaut (appliqué à la première ouverture du configurateur)</label>
           </div>
         </div>
         <hr class="admin-sep">
@@ -880,7 +1017,7 @@ include __DIR__ . '/../includes/admin-head.php';
             <?php foreach ($formes as $fo): ?>
               <tr>
                 <td><?= cat_thumb($fo) ?></td>
-                <td><strong><?= htmlspecialchars((string) $fo['nom']) ?></strong></td>
+                <td><strong><?= htmlspecialchars((string) $fo['nom']) ?></strong><?= !empty($fo['defaut']) ? ' <span class="admin-badge-defaut">défaut</span>' : '' ?></td>
                 <td><?= htmlspecialchars($formeGeoLabels[$fo['geometrie'] ?? ''] ?? (string) ($fo['geometrie'] ?? '')) ?></td>
                 <td><?= ($fo['geometrie'] ?? '') === 'deuxpentes' ? (int) ($fo['pente1'] ?? 0) . '° / ' . (int) ($fo['pente2'] ?? 0) . '° (par versant)' : (int) ($fo['pente'] ?? 0) . '°' ?></td>
                 <td class="admin-actions">
@@ -914,6 +1051,11 @@ include __DIR__ . '/../includes/admin-head.php';
           <div class="admin-form-row">
             <label for="fo-nom">Nom</label>
             <input type="text" id="fo-nom" name="nom" required value="<?= htmlspecialchars((string) ($editForme['nom'] ?? '')) ?>" placeholder="Deux pentes 45° — pignon">
+          </div>
+        </div>
+        <div class="modal-row">
+          <div class="admin-form-row admin-form-check">
+            <label><input type="checkbox" name="defaut" value="1"<?= !empty($editForme['defaut']) ? ' checked' : '' ?>> Élément par défaut (appliqué à la première ouverture du configurateur)</label>
           </div>
         </div>
         <hr class="admin-sep">
@@ -980,7 +1122,7 @@ include __DIR__ . '/../includes/admin-head.php';
             <?php foreach ($charpentes as $ch): $rgbC = $ch['rgb'] ?? [140, 107, 89]; ?>
               <tr>
                 <td><?= cat_thumb($ch) ?></td>
-                <td><strong><?= htmlspecialchars((string) $ch['nom']) ?></strong></td>
+                <td><strong><?= htmlspecialchars((string) $ch['nom']) ?></strong><?= !empty($ch['defaut']) ? ' <span class="admin-badge-defaut">défaut</span>' : '' ?></td>
                 <td><?= cat_cm((float) ($ch['epaisseur'] ?? 0.20)) ?></td>
                 <td><span class="admin-color-swatch" style="background-color: <?= cat_hex($rgbC) ?>;"></span> <?= cat_hex($rgbC) ?></td>
                 <td><?= ($ch['favori'] ?? '') !== '' ? htmlspecialchars((string) $ch['favori']) : '—' ?></td>
@@ -1015,6 +1157,11 @@ include __DIR__ . '/../includes/admin-head.php';
           <div class="admin-form-row">
             <label for="ch-nom">Nom</label>
             <input type="text" id="ch-nom" name="nom" required value="<?= htmlspecialchars((string) ($editCharpente['nom'] ?? '')) ?>" placeholder="Charpente traditionnelle">
+          </div>
+        </div>
+        <div class="modal-row">
+          <div class="admin-form-row admin-form-check">
+            <label><input type="checkbox" name="defaut" value="1"<?= !empty($editCharpente['defaut']) ? ' checked' : '' ?>> Élément par défaut (appliqué à la première ouverture du configurateur)</label>
           </div>
         </div>
         <hr class="admin-sep">
@@ -1186,20 +1333,19 @@ include __DIR__ . '/../includes/admin-head.php';
       <?php endif; ?>
       <?php else: ?>
       <h2>Toitures (<?= count($toitures) ?>) <?= cat_btn_add('configurateur.php?section=toitures&new=1', 'Ajouter un type de toiture') ?></h2>
-      <p class="admin-hint">Types de toiture : géométrie, épaisseur (bande au-dessus de la ligne directrice en élévation), surface, couleur, référence Archicad, coût au m² — liés aux modules.</p>
+      <p class="admin-hint">Types de toiture : épaisseur (bande au-dessus de la ligne directrice en élévation), surface, couleur, référence Archicad, coût au m². La géométrie (monopente / deux pentes / quatre pentes) se règle dans l'onglet « Formes ».</p>
       <?php if ($toitures === []): ?>
         <p class="admin-hint">Aucun type de toiture dans le catalogue pour le moment.</p>
       <?php else: ?>
         <table class="admin-table">
           <thead>
-            <tr><th>Visuel</th><th>Nom</th><th>Géométrie</th><th>Épaisseur</th><th>Couleur</th><th>Référence Archicad</th><th>Actions</th></tr>
+            <tr><th>Visuel</th><th>Nom</th><th>Épaisseur</th><th>Couleur</th><th>Référence Archicad</th><th>Actions</th></tr>
           </thead>
           <tbody>
             <?php foreach ($toitures as $t): $rgbT = $t['rgb'] ?? [120, 113, 108]; ?>
               <tr>
                 <td><?= cat_thumb($t) ?></td>
                 <td><strong><?= htmlspecialchars((string) $t['nom']) ?></strong></td>
-                <td><?= htmlspecialchars($toitureTypeLabels[$t['type'] ?? ''] ?? (string) ($t['type'] ?? '')) ?></td>
                 <td><?= cat_cm((float) ($t['epaisseur'] ?? 0.30)) ?></td>
                 <td><span class="admin-color-swatch" style="background-color: <?= cat_hex($rgbT) ?>;"></span> <?= cat_hex($rgbT) ?></td>
                 <td><?= ($t['favori'] ?? '') !== '' ? htmlspecialchars((string) $t['favori']) : '—' ?></td>
@@ -1356,14 +1502,6 @@ include __DIR__ . '/../includes/admin-head.php';
             <label for="to-nom">Nom</label>
             <input type="text" id="to-nom" name="nom" required value="<?= cat_env_field($editEnv, 'toitures', 'nom') ?>" placeholder="Toiture deux pentes">
           </div>
-          <div class="admin-form-row">
-            <label for="to-type">Géométrie</label>
-            <select id="to-type" name="type">
-              <?php foreach ($toitureTypes as $tt): ?>
-                <option value="<?= htmlspecialchars((string) $tt['id']) ?>"<?= (($editEnv['item']['type'] ?? 'monopente') === $tt['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $tt['nom']) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
         </div>
         <hr class="admin-sep">
         <div class="modal-row">
@@ -1407,5 +1545,8 @@ include __DIR__ . '/../includes/admin-head.php';
     <?php modal_close(); endif; ?>
 
     <?php endif; ?>
+      <?php endif; ?>
+    </div>
+<?php endforeach; ?>
 <?php
 include __DIR__ . '/../includes/admin-footer.php';

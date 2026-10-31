@@ -52,21 +52,6 @@ include 'includes/head.html';
   <!-- Configurateur -->
   <section class="section" style="padding-top: var(--spacing-md);">
     <div class="container">
-      <!-- Encart explicatif, juste au-dessus du configurateur -->
-      <div class="config-intro fade-in">
-        <p>
-          Le configurateur ci-dessous fonctionne directement dans votre navigateur :
-          réglez les dimensions, la toiture, les murs et les ouvertures, visualisez le plan
-          et les élévations, puis téléchargez le fichier JSON du module. Ce fichier est lu
-          côté Archicad par le script Python Baracca (API JSON officielle + add-on Tapir),
-          qui génère automatiquement murs, toiture, plancher et ouvertures.
-        </p>
-        <p>
-          Besoin d'un point de départ ? Un <a href="TEST/Baracca_Module_01.json">exemple de fichier JSON</a>
-          est disponible pour visualiser le format d'échange attendu.
-        </p>
-      </div>
-
       <?php if ($isLoggedIn): ?>
         <div class="fade-in">
           <iframe
@@ -95,6 +80,21 @@ include 'includes/head.html';
           </div>
         </div>
       <?php endif; ?>
+
+      <!-- Encart explicatif, juste en-dessous du configurateur -->
+      <div class="config-intro fade-in">
+        <p>
+          Le configurateur ci-dessus fonctionne directement dans votre navigateur :
+          réglez les dimensions, la toiture, les murs et les ouvertures, visualisez le plan
+          et les élévations, puis téléchargez le fichier JSON du module. Ce fichier est lu
+          côté Archicad par le script Python Baracca (API JSON officielle + add-on Tapir),
+          qui génère automatiquement murs, toiture, plancher et ouvertures.
+        </p>
+        <p>
+          Besoin d'un point de départ ? Un <a href="TEST/Baracca_Module_01.json">exemple de fichier JSON</a>
+          est disponible pour visualiser le format d'échange attendu.
+        </p>
+      </div>
     </div>
   </section>
 

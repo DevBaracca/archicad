@@ -14,7 +14,7 @@ $adminLoggedIn = archicad_admin_is_logged_in();
   <link rel="stylesheet" href="../assets/css/style.css">
   <link rel="stylesheet" href="../assets/css/admin.css">
 </head>
-<body class="admin-body">
+<body class="admin-body<?= ($adminPage ?? '') === 'configurateur' ? ' admin-configurateur' : '' ?>">
   <!-- Header (mise en page du site) -->
   <header class="header">
     <div class="container">
