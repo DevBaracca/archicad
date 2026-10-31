@@ -19,10 +19,17 @@ const TOITURES = [
   { id: "terrasse", nom: "Terrasse plate", type: "terrasse", epaisseur: 0.25, surface: "", rgb: [120, 113, 108], favori: "Baracca — Toiture terrasse" },
 ];
 const FORMES = [
-  { id: "forme-monopente-15", nom: "Monopente 15°", pente: 15, pignon: false, image: "" },
-  { id: "forme-deuxpentes-30", nom: "Deux pentes 30° — pignon", pente: 30, pignon: true, image: "" },
-  { id: "forme-deuxpentes-45", nom: "Deux pentes 45° — pignon", pente: 45, pignon: true, image: "" },
+  { id: "forme-monopente-15", nom: "Monopente 15°", geometrie: "monopente", pente: 15, pente1: 15, pente2: 15, pignon: false, image: "" },
+  { id: "forme-deuxpentes-30", nom: "Deux pentes 30° / 30°", geometrie: "deuxpentes", pente: 30, pente1: 30, pente2: 30, pignon: true, image: "" },
+  { id: "forme-deuxpentes-45", nom: "Deux pentes 45° / 45°", geometrie: "deuxpentes", pente: 45, pente1: 45, pente2: 45, pignon: true, image: "" },
+  { id: "forme-quatrepentes-30", nom: "Quatre pentes 30° (croupe)", geometrie: "quatrepentes", pente: 30, pente1: 30, pente2: 30, pignon: false, image: "" },
 ];
+const GEO_LABELS = {
+  monopente: "Monopente",
+  deuxpentes: "Deux pentes (pignon)",
+  quatrepentes: "Quatre pentes (croupe)",
+  terrasse: "Terrasse plate",
+};
 const CHARPENTES = [
   { id: "charpente-tradi", nom: "Charpente traditionnelle", epaisseur: 0.20, rgb: [140, 107, 89], favori: "", tarif: 0, image: "" },
 ];
@@ -47,13 +54,15 @@ const FACES = [
 const DEFAULTS = {
   nom: "Baracca_Module_01",
   moduleId: null, // modèle de module choisi dans le catalogue (null = sur mesure)
-  forme: null, // forme de toiture du module (catalogue « formes » : pente, pignon)
+  forme: null, // forme de toiture du module (catalogue « formes » : géométrie, pentes)
+  geometrie: null, // géométrie de la forme : monopente / deuxpentes / quatrepentes
   longueur: 6.0,
   largeur: 3.0,
   hauteur: 2.8,
   murType: "clt140",
   toiture: "monopente",
-  pente: 15,
+  pente: 15, // pente du versant 1 (monopente / quatre pentes : pente unique)
+  pente2: null, // pente du versant 2 (deux pentes asymétriques)
   pignon: true,
   plancher: "clt_dalle",
   facade: "bardage_bois",
@@ -96,29 +105,46 @@ const toitureDefOf = (d, env) =>
   || env.toitures.find((t) => t.type === d.toiture)
   || env.toitures[0]
   || { id: "monopente", nom: "Monopente", type: "monopente", favori: "", epaisseur: 0.30, rgb: [120, 113, 108], surface: "" };
-const toitTypeOf = (d, env) => toitureDefOf(d, env).type || "monopente";
-
-/* Forme de toiture du module choisi (catalogue « formes » : pente + pignon),
-   référencée par le modèle ; repli sur les champs pente/pignon de l'état
-   pour les anciennes configurations enregistrées */
+/* Forme de toiture du module choisi (catalogue « formes » : géométrie + pentes),
+   référencée par le modèle ; repli sur les champs de l'état pour les
+   anciennes configurations enregistrées */
 const formeDefOf = (d, env) => {
   const mod = env.modules?.find((m) => m.id === d.moduleId);
   const byId = (mod?.forme || d.forme) ? env.formes?.find((f) => f.id === (mod?.forme || d.forme)) : null;
   return byId || null;
 };
 
+/* Géométrie de toiture effective : la forme du module prioritairement,
+   sinon le type de l'élément toiture (rétro-compatibilité terrasse) */
+const toitTypeOf = (d, env) =>
+  d.geometrie || formeDefOf(d, env)?.geometrie || toitureDefOf(d, env).type || "monopente";
+
+/* Pente du versant 2 en degrés (deux pentes asymétriques ; = pente sinon) */
+const pente2Of = (d) => +(d.pente2 ?? d.pente ?? 15);
+const pente1Of = (d) => +(d.pente ?? 15);
+
 function surfaceToiture(d, tt) {
   if (tt === "terrasse") return surfacePlancher(d);
-  const angle = (d.pente * Math.PI) / 180;
-  // monopente : 1 versant sur toute la largeur ; deux pentes : 2 versants de largeur/2
-  return d.longueur * (d.largeur / Math.cos(angle));
+  const c1 = Math.cos((pente1Of(d) * Math.PI) / 180);
+  if (tt === "deuxpentes") {
+    // 2 versants de largeur/2, chacun selon sa propre pente
+    const c2 = Math.cos((pente2Of(d) * Math.PI) / 180);
+    return d.longueur * (d.largeur / 2) * (1 / c1 + 1 / c2);
+  }
+  // monopente : 1 versant sur toute la largeur ; quatre pentes : projection / cos
+  return d.longueur * (d.largeur / c1);
 }
 
 function hauteurFaitage(d, tt) {
   if (tt === "terrasse") return 0;
-  const angle = (d.pente * Math.PI) / 180;
-  const base = tt === "monopente" ? d.largeur : d.largeur / 2;
-  return Math.tan(angle) * base;
+  const t1 = Math.tan((pente1Of(d) * Math.PI) / 180);
+  if (tt === "monopente") return t1 * d.largeur;
+  if (tt === "quatrepentes") return t1 * (d.largeur / 2);
+  // deux pentes, éventuellement asymétriques : h = l / (1/tan p1 + 1/tan p2)
+  const t2 = Math.tan((pente2Of(d) * Math.PI) / 180);
+  if (t1 <= 0) return d.largeur * t2;
+  if (t2 <= 0) return d.largeur * t1;
+  return d.largeur / (1 / t1 + 1 / t2);
 }
 
 const murLongueur = (d, face) =>
@@ -189,18 +215,20 @@ function mursChiffrage(d, env) {
   const epMur = +(murDef?.epaisseur ?? 0.14);
   const epToit = +(toiture?.epaisseur ?? 0.30);
   const hF = hauteurFaitage(d, toitType);
-  const cosPente = Math.cos((d.pente * Math.PI) / 180);
+  const c1 = Math.cos((pente1Of(d) * Math.PI) / 180);
+  const c2 = Math.cos((pente2Of(d) * Math.PI) / 180);
   let total = 0;
   const detail = [];
   FACES.forEach((f) => {
     if (!d.murs[f.key].actif) return;
     const longueurExt = murLongueur(d, f.key) + 2 * epMur; // épaisseurs aux 2 extrémités
     let area = longueurExt * d.hauteur;
-    if (toitType === "deuxpentes" && d.pignon && (f.key === "est" || f.key === "ouest")) {
+    // deux pentes = pignon : triangle de toiture sur est/ouest
+    if (toitType === "deuxpentes" && (f.key === "est" || f.key === "ouest")) {
       const base = d.largeur + 2 * epMur;
       const triangle = (base * hF) / 2;                 // triangle du pignon
-      const versant = base / 2 / cosPente;              // longueur d'un versant
-      area += triangle + 2 * versant * epToit;          // + épaisseur de toiture sur les 2 versants
+      const v1 = (base / 2) / c1, v2 = (base / 2) / c2;  // longueur des 2 versants (pentes propres)
+      area += triangle + (v1 + v2) * epToit;            // + épaisseur de toiture sur les 2 versants
     }
     // les ouvrants remplacent de la surface de mur
     area -= d.murs[f.key].ouvertures.reduce((ss, o) => ss + o.largeur * o.hauteur, 0);
@@ -220,14 +248,23 @@ function surfacesChiffrage(d, env) {
   const toiture = toitureDefOf(d, env);
   const toitType = toitTypeOf(d, env);
   const epToit = +(toiture?.epaisseur ?? 0.30);
-  const cosPente = Math.cos((d.pente * Math.PI) / 180);
+  const c1 = Math.cos((pente1Of(d) * Math.PI) / 180);
+  const c2 = Math.cos((pente2Of(d) * Math.PI) / 180);
   const M = mursChiffrage(d, env);
   const plancher = surfacePlancher(d);
-  const versants = toitType === "monopente" ? 1 : 2; // deux pentes = 2 versants de largeur/2
-  const baseVersant = d.largeur / versants;
-  const toitureS = toitType === "terrasse"
-    ? plancher
-    : d.longueur * versants * (baseVersant / cosPente + 2 * epToit); // chaque versant + ép. en haut et en bas
+  let toitureS;
+  if (toitType === "terrasse") {
+    toitureS = plancher;
+  } else if (toitType === "deuxpentes") {
+    // 2 versants de largeur/2 (chacun sa pente) + ép. en haut et en bas de chaque versant
+    toitureS = d.longueur * (d.largeur / 2 / c1 + 2 * epToit)
+             + d.longueur * (d.largeur / 2 / c2 + 2 * epToit);
+  } else if (toitType === "quatrepentes") {
+    // 4 versants : surface = projection / cos, + 2 ép. sur chaque avant-toit (périmètre)
+    toitureS = surfaceToiture(d, toitType) + 2 * epToit * (2 * d.longueur + 2 * d.largeur);
+  } else {
+    toitureS = d.longueur * (d.largeur / c1 + 2 * epToit); // monopente : 1 versant + ép. haut/bas
+  }
   const ouvrants = FACES.reduce(
     (n, f) => n + (d.murs[f.key].actif ? d.murs[f.key].ouvertures.length : 0),
     0
@@ -322,13 +359,14 @@ function buildExport(d, env) {
       },
       toiture: {
         type: toitureDef.nom,
-        geometrie: toitType, // monopente / deuxpentes / terrasse
+        geometrie: toitType, // monopente / deuxpentes / quatrepentes / terrasse
         forme: formeDef ? { id: formeDef.id, nom: formeDef.nom } : null, // forme de toiture du module (catalogue « formes »)
         favori: toitureDef.favori ?? "", // favori Archicad pour la toiture
         surface: (env.facades.find((f) => f.id === (d.surfaceToiture ?? toitureDef.surface)) || env.facades[0]).nom, // surface choisie pour la toiture
         epaisseur: +(+(toitureDef.epaisseur ?? 0.30)).toFixed(3),
-        pente: toitType === "terrasse" ? null : d.pente,
-        pignon: toitType === "deuxpentes" ? d.pignon : null,
+        pente: toitType === "terrasse" ? null : pente1Of(d), // pente du versant 1
+        pente2: toitType === "deuxpentes" ? pente2Of(d) : null, // pente du versant 2 (deux pentes)
+        pignon: toitType === "deuxpentes" ? true : toitType === "quatrepentes" ? false : null,
         hauteurFaitage: +hauteurFaitage(d, toitType).toFixed(2),
         surface: +surfaceToiture(d, toitType).toFixed(2),
       },
@@ -353,6 +391,11 @@ function buildExport(d, env) {
 function mergeConfig(saved) {
   const base = JSON.parse(JSON.stringify(DEFAULTS));
   const out = { ...base, ...saved };
+  // Anciennes configurations : pignon -> geometrie deux pentes, pente2 = pente
+  if (out.geometrie == null && saved.pignon !== undefined) {
+    out.geometrie = saved.pignon ? "deuxpentes" : "monopente";
+  }
+  if (out.pente2 == null) out.pente2 = out.pente;
   out.murs = {};
   FACES.forEach((f) => {
     out.murs[f.key] = { ...base.murs[f.key], ...((saved.murs || {})[f.key] || {}) };
@@ -394,7 +437,7 @@ function Plan({ d, murs, toitType, selectedFace, onSelectFace }) {
         </pattern>
       </defs>
       <rect x={x0} y={y0} width={L} height={l} fill="#faf7f2" stroke="#57534e" strokeWidth="1" strokeDasharray="6 4" />
-      <text x={x0 + L / 2} y={y0 + l / 2 + (toitType === "deuxpentes" ? 18 : 4)} textAnchor="middle" fill="#a8a29e" fontSize="11">
+      <text x={x0 + L / 2} y={y0 + l / 2 + ((toitType === "deuxpentes" || toitType === "quatrepentes") ? 18 : 4)} textAnchor="middle" fill="#a8a29e" fontSize="11">
         {fmtCm(d.longueur)} × {fmtCm(d.largeur)} cm — {surfacePlancher(d).toFixed(1)} m²
       </text>
       {FACES.map((f) => {
@@ -439,7 +482,21 @@ function Plan({ d, murs, toitType, selectedFace, onSelectFace }) {
           <line x1={x0} y1={y0 + l / 2} x2={x0 + L} y2={y0 + l / 2}
             stroke="#b45309" strokeWidth="2" strokeDasharray="7 5" />
           <text x={x0 + L / 2} y={y0 + l / 2 - 6} textAnchor="middle" fill="#b45309" fontSize="10">
-            Faitage {d.pignon ? "(pignon)" : "(croupe)"}
+            Faitage (pignon){d.pente !== (d.pente2 ?? d.pente) ? ` — ${d.pente}° / ${d.pente2 ?? d.pente}°` : ""}
+          </text>
+        </g>
+      )}
+      {toitType === "quatrepentes" && (
+        <g>
+          {/* faitage court + 4 arêtiers depuis les angles */}
+          <line x1={x0 + l / 2} y1={y0 + l / 2} x2={x0 + L - l / 2} y2={y0 + l / 2}
+            stroke="#b45309" strokeWidth="2" strokeDasharray="7 5" />
+          <line x1={x0} y1={y0} x2={x0 + l / 2} y2={y0 + l / 2} stroke="#b45309" strokeWidth="1.5" strokeDasharray="4 4" />
+          <line x1={x0 + L} y1={y0} x2={x0 + L - l / 2} y2={y0 + l / 2} stroke="#b45309" strokeWidth="1.5" strokeDasharray="4 4" />
+          <line x1={x0} y1={y0 + l} x2={x0 + l / 2} y2={y0 + l / 2} stroke="#b45309" strokeWidth="1.5" strokeDasharray="4 4" />
+          <line x1={x0 + L} y1={y0 + l} x2={x0 + L - l / 2} y2={y0 + l / 2} stroke="#b45309" strokeWidth="1.5" strokeDasharray="4 4" />
+          <text x={x0 + L / 2} y={y0 + l / 2 - 6} textAnchor="middle" fill="#b45309" fontSize="10">
+            Faitage (croupe) — {d.pente}°
           </text>
         </g>
       )}
@@ -450,14 +507,13 @@ function Plan({ d, murs, toitType, selectedFace, onSelectFace }) {
 /* =================================================================
    Élévation SVG (façade sud)
 ================================================================= */
-function Elevation({ d, murs, planchers, surfaces, toiture, faceKey }) {
+function Elevation({ d, murs, planchers, surfaces, toiture, toitType, faceKey }) {
   const W = 560, H = 320, margin = 60;
   const horiz = faceKey === "nord" || faceKey === "sud";
   const Lm = horiz ? d.longueur : d.largeur;
   const face = d.murs[faceKey];
   const murDef = murs.find((m) => m.id === d.murType) || murs[0];
   const epP = epaisseurPlancher(d, planchers);
-  const toitType = toiture.type || "monopente";
   const epToit = +(toiture.epaisseur ?? 0.30);   // épaisseur de la toiture (m)
   const toitRgb = toiture.rgb || [120, 113, 108];
   const surfaceDef = surfaces.find((s) => s.id === (d.murs[faceKey]?.surface ?? murDef.surface)) || surfaces[0];
@@ -505,12 +561,24 @@ function Elevation({ d, murs, planchers, surfaces, toiture, faceKey }) {
         ? `M ${xa} ${yTop - hF} L ${xb} ${yTop}`
         : `M ${xa} ${yTop} L ${xb} ${yTop - hF}`;
     }
+  } else if (horiz && toitType === "quatrepentes") {
+    // élévation nord/sud en croupe : trapèze, faitage court entre les arêtiers
+    const rx1 = x0 + (d.largeur / 2) * scale, rx2 = x0 + L - (d.largeur / 2) * scale;
+    toitPath = `M ${xa} ${yTop} L ${rx1} ${yTop - hF} L ${rx2} ${yTop - hF} L ${xb} ${yTop}`;
+    toitFill = "rgba(180,83,9,0.15)";
   } else if (horiz) {
+    // deux pentes, vue de côté (faitage sur toute la longueur)
     toitPath = `M ${xa} ${yTop} L ${xb} ${yTop} M ${xa} ${yTop - hF} L ${xb} ${yTop - hF}`;
     toitDash = "8 5"; vueCote = true;
   } else {
-    toitPath = `M ${xa} ${yTop} L ${x0 + L / 2} ${yTop - hF} L ${xb} ${yTop} Z`;
-    toitFill = d.pignon ? "rgba(180,83,9,0.15)" : "none";
+    // est/ouest : pan triangulaire (pignon deux pentes, ou pan de croupe) ;
+    // deux pentes asymétriques : le faitage est décalé (avancée du versant 1)
+    const t1 = Math.tan((pente1Of(d) * Math.PI) / 180);
+    const hFm = hauteurFaitage(d, toitType);
+    const run1 = t1 > 0 ? Math.min(Math.max(hFm / t1, 0), d.largeur) : d.largeur / 2;
+    const apexX = x0 + run1 * scale;
+    toitPath = `M ${xa} ${yTop} L ${apexX} ${yTop - hF} L ${xb} ${yTop} Z`;
+    toitFill = "rgba(180,83,9,0.15)";
   }
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
@@ -549,7 +617,7 @@ function Elevation({ d, murs, planchers, surfaces, toiture, faceKey }) {
           ? `${nom} — terrasse plate`
           : vueCote
             ? `${nom} — toiture vue de côté (faitage +${fmtCm(hauteurFaitage(d, toitType))} cm)`
-            : `${nom} — ${d.pignon ? "pignon" : "croupe"}, faitage +${fmtCm(hauteurFaitage(d, toitType))} cm`}
+            : `${nom} — ${toitType === "deuxpentes" ? "pignon" : "croupe"}, faitage +${fmtCm(hauteurFaitage(d, toitType))} cm`}
       </text>
     </svg>
   );
@@ -623,19 +691,24 @@ export default function App() {
      géométrie prédéfinie + éléments d'enveloppe liés au modèle
      (le client ne peut ni l'un ni l'autre — affichage en lecture seule) */
   const modulePatch = (m) => {
-    // La pente et le pignon viennent de la forme de toiture référencée par le
-    // module (catalogue « formes ») — ils ne sont plus modifiables seuls
+    // La géométrie et les pentes viennent de la forme de toiture référencée
+    // par le module (catalogue « formes ») — elles ne sont plus modifiables seules
     const forme = env.formes?.find((f) => f.id === m.forme);
+    const geometrie = forme?.geometrie || (m.pignon ? "deuxpentes" : "monopente");
+    const p1 = +(forme?.pente1 ?? forme?.pente ?? m.pente ?? 15);
+    const p2 = +(forme?.pente2 ?? forme?.pente1 ?? forme?.pente ?? m.pente ?? 15);
     return {
       moduleId: m.id,
       nom: m.nom,
       forme: m.forme || null,
+      geometrie,
       longueur: +m.longueur,
       largeur: +m.largeur,
       hauteur: +m.hauteur,
       toiture: m.toiture,
-      pente: forme ? +forme.pente : (+m.pente || 15),
-      pignon: forme ? !!forme.pignon : m.pignon !== false,
+      pente: p1,
+      pente2: geometrie === "deuxpentes" ? p2 : p1,
+      pignon: geometrie === "deuxpentes", // deux pentes = pignon, quatre pentes = croupe
       ...(m.mur ? { murType: m.mur } : {}),
       ...(m.plancher ? { plancher: m.plancher } : {}),
       // la surface extérieure est celle du mur choisi (mur.surface)
@@ -931,7 +1004,7 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <Elevation d={d} murs={env.murs} planchers={env.planchers} surfaces={env.facades} toiture={toitureDef} faceKey={selectedFace} />
+            <Elevation d={d} murs={env.murs} planchers={env.planchers} surfaces={env.facades} toiture={toitureDef} toitType={toitType} faceKey={selectedFace} />
           </div>
         </div>
         </div>
@@ -999,8 +1072,9 @@ export default function App() {
                   <span className="spec-k">Forme de toiture</span>
                   <span className="spec-v">
                     {formeDef ? formeDef.nom : "—"}
-                    {toitType !== "terrasse" && ` — pente ${d.pente}°`}
-                    {toitType === "deuxpentes" && (d.pignon ? " — pignon" : " — croupe")}
+                    {toitType !== "terrasse" && ` — ${GEO_LABELS[toitType] || toitType}`}
+                    {toitType === "deuxpentes" && ` — pentes ${d.pente}° / ${d.pente2 ?? d.pente}°`}
+                    {toitType !== "deuxpentes" && toitType !== "terrasse" && ` — pente ${d.pente}°`}
                   </span>
                 </div>
                 <div className="spec-row">

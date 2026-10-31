@@ -97,13 +97,15 @@ function archicad_catalogue_defaults(string $kind): array
                 ['id' => 'porte-fenetre-180x215', 'nom' => 'Porte-fenêtre 1,80 × 2,15 m', 'type' => 'baie', 'largeur' => 1.80, 'hauteur' => 2.15, 'favori' => '', 'tarif' => 0, 'image' => '', 'created' => $today],
             ];
         case 'formes':
-            // Formes de toiture : pente (°) et présence d'un pignon.
-            // Un modèle de module référence l'id d'une forme (la pente et le
-            // pignon ne sont plus saisis dans le module).
+            // Formes de toiture : géométrie (monopente / deux pentes / quatre
+            // pentes) et pente(s) en degrés — deux pentes permet une pente
+            // différente par versant (pente1 / pente2). Un modèle de module
+            // référence l'id d'une forme.
             return [
-                ['id' => 'forme-monopente-15', 'nom' => 'Monopente 15°', 'pente' => 15, 'pignon' => false, 'image' => '', 'created' => $today],
-                ['id' => 'forme-deuxpentes-30', 'nom' => 'Deux pentes 30° — pignon', 'pente' => 30, 'pignon' => true, 'image' => '', 'created' => $today],
-                ['id' => 'forme-deuxpentes-45', 'nom' => 'Deux pentes 45° — pignon', 'pente' => 45, 'pignon' => true, 'image' => '', 'created' => $today],
+                ['id' => 'forme-monopente-15', 'nom' => 'Monopente 15°', 'geometrie' => 'monopente', 'pente' => 15, 'pente1' => 15, 'pente2' => 15, 'pignon' => false, 'image' => '', 'created' => $today],
+                ['id' => 'forme-deuxpentes-30', 'nom' => 'Deux pentes 30° / 30°', 'geometrie' => 'deuxpentes', 'pente' => 30, 'pente1' => 30, 'pente2' => 30, 'pignon' => true, 'image' => '', 'created' => $today],
+                ['id' => 'forme-deuxpentes-45', 'nom' => 'Deux pentes 45° / 45°', 'geometrie' => 'deuxpentes', 'pente' => 45, 'pente1' => 45, 'pente2' => 45, 'pignon' => true, 'image' => '', 'created' => $today],
+                ['id' => 'forme-quatrepentes-30', 'nom' => 'Quatre pentes 30° (croupe)', 'geometrie' => 'quatrepentes', 'pente' => 30, 'pente1' => 30, 'pente2' => 30, 'pignon' => false, 'image' => '', 'created' => $today],
             ];
         case 'charpentes':
             // Charpentes (à l'identique des ouvrants : visuel, nom, épaisseur,
@@ -182,6 +184,19 @@ function archicad_catalogue_toiture_types(): array
     ];
 }
 
+/**
+ * Géométries de forme de toiture (rubrique « formes ») : deux pentes = pignon,
+ * quatre pentes = croupe (pas de pignon).
+ */
+function archicad_catalogue_forme_geometries(): array
+{
+    return [
+        ['id' => 'monopente', 'nom' => 'Monopente'],
+        ['id' => 'deuxpentes', 'nom' => 'Deux pentes (pignon)'],
+        ['id' => 'quatrepentes', 'nom' => 'Quatre pentes (croupe)'],
+    ];
+}
+
 function archicad_save_catalogue(string $kind, array $items): bool
 {
     if (!is_dir(archicad_catalogue_dir())) {
@@ -255,11 +270,38 @@ function archicad_load_catalogue(string $kind): array
         }
     }
     if ($kind === 'formes') {
+        // Migration : ancienne forme {pente, pignon} -> {geometrie, pente1, pente2}
+        // (pignon = deux pentes ; deux pentes : pente1 = pente2 = pente)
+        $changedFormes = false;
         foreach ($items as $i => $item) {
+            if (empty($item['geometrie'])) {
+                $items[$i]['geometrie'] = !empty($item['pignon']) ? 'deuxpentes' : 'monopente';
+                $changedFormes = true;
+            }
+            if (!in_array($items[$i]['geometrie'], ['monopente', 'deuxpentes', 'quatrepentes'], true)) {
+                $items[$i]['geometrie'] = 'monopente';
+                $changedFormes = true;
+            }
             if (!isset($item['pente']) || !is_numeric($item['pente'])) {
                 $items[$i]['pente'] = 15;
+                $changedFormes = true;
             }
-            $items[$i]['pignon'] = !empty($item['pignon']);
+            if (!isset($item['pente1']) || !is_numeric($item['pente1'])) {
+                $items[$i]['pente1'] = (float) $items[$i]['pente'];
+                $changedFormes = true;
+            }
+            if (!isset($item['pente2']) || !is_numeric($item['pente2'])) {
+                $items[$i]['pente2'] = (float) $items[$i]['pente'];
+                $changedFormes = true;
+            }
+            // pignon dénormalisé : deux pentes = pignon, quatre pentes = croupe
+            if (!array_key_exists('pignon', $item) || $item['pignon'] !== ($items[$i]['geometrie'] === 'deuxpentes')) {
+                $items[$i]['pignon'] = $items[$i]['geometrie'] === 'deuxpentes';
+                $changedFormes = true;
+            }
+        }
+        if ($changedFormes) {
+            archicad_save_catalogue('formes', $items);
         }
     }
     if ($kind === 'charpentes') {
@@ -304,13 +346,17 @@ function archicad_load_catalogue(string $kind): array
                 if ($found === null) {
                     $found = archicad_catalogue_upsert('formes', [
                         'nom' => 'Pente ' . $pente . '°' . ($pignon ? ' — pignon' : ''),
+                        'geometrie' => $pignon ? 'deuxpentes' : 'monopente',
                         'pente' => $pente,
+                        'pente1' => $pente,
+                        'pente2' => $pente,
                         'pignon' => $pignon,
                     ]);
                 }
                 $items[$i]['forme'] = (string) $found['id'];
-                $items[$i]['pente'] = $pente;
-                $items[$i]['pignon'] = $pignon;
+                // pente / pignon dénormalisés depuis la forme référencée
+                $items[$i]['pente'] = (int) round((float) ($found['pente1'] ?? $found['pente'] ?? $pente));
+                $items[$i]['pignon'] = ($found['geometrie'] ?? '') === 'deuxpentes';
                 $changedModules = true;
             }
             // La toiture du modèle référence désormais la rubrique toitures :

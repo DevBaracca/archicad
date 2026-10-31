@@ -221,6 +221,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($nom === '' || $longueur <= 0 || $largeur <= 0 || $hauteur <= 0) {
             cat_redirect('modules', 'invalid');
         }
+        $formePente = (int) round((float) ($formeItem['pente1'] ?? $formeItem['pente'] ?? 15));
+        $formePignon = ($formeItem['geometrie'] ?? '') === 'deuxpentes';
         // Éléments d'enveloppe liés au modèle (ids du catalogue enveloppe,
         // à défaut le premier élément de chaque sous-catalogue)
         $envRef = function (string $posted, string $kind, array $list): string {
@@ -242,8 +244,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'hauteur' => $hauteur,
             'forme' => $forme,
             // pente / pignon dénormalisés depuis la forme (rétro-compatibilité)
-            'pente' => (int) round((float) ($formeItem['pente'] ?? 15)),
-            'pignon' => !empty($formeItem['pignon']),
+            'pente' => $formePente,
+            'pignon' => $formePignon,
             'toiture' => $toiture,
             'mur' => $murId,
             'plancher' => $plancherId,
@@ -281,18 +283,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         cat_redirect('modules', 'deleted');
     }
 
-    // ----- Formes de toiture (pente, pignon) -----
+    // ----- Formes de toiture (géométrie + pente(s)) -----
     if ($action === 'save_forme') {
         $id = trim((string) ($_POST['id'] ?? ''));
         $nom = trim((string) ($_POST['nom'] ?? ''));
+        $geometrie = (string) ($_POST['geometrie'] ?? 'monopente');
+        if (!in_array($geometrie, array_column(archicad_catalogue_forme_geometries(), 'id'), true)) {
+            $geometrie = 'monopente';
+        }
         $pente = max(0, min(90, (int) round(cat_num('pente'))));
+        $pente1 = max(0, min(90, (int) round(cat_num('pente1'))));
+        $pente2 = max(0, min(90, (int) round(cat_num('pente2'))));
+        // deux pentes : une pente par versant ; monopente / quatre pentes : une pente
+        if ($geometrie === 'deuxpentes' ? ($pente1 <= 0 || $pente2 <= 0) : $pente <= 0) {
+            cat_redirect('formes', 'invalid');
+        }
         if ($nom === '') {
             cat_redirect('formes', 'invalid');
         }
+        if ($geometrie === 'deuxpentes') {
+            $pente = $pente1; // « pente » dénormalisée = pente du versant 1
+        }
         $item = archicad_catalogue_upsert('formes', [
             'nom' => $nom,
+            'geometrie' => $geometrie,
             'pente' => $pente,
-            'pignon' => isset($_POST['pignon']),
+            'pente1' => $pente1,
+            'pente2' => $pente2,
+            'pignon' => $geometrie === 'deuxpentes', // dénormalisé (deux pentes = pignon)
         ], $id !== '' ? $id : null);
         // Visuel (suppression demandée ou nouvel envoi)
         if (isset($_POST['remove_image']) && (string) ($item['image'] ?? '') !== '') {
@@ -503,6 +521,9 @@ $toitureLabels = array_column($toitures, 'nom', 'id');
 $toitureTypeOf = array_column($toitures, 'type', 'id');
 $toitureTypeLabels = array_column($toitureTypes, 'nom', 'id');
 $formeNames = array_column($formes, 'nom', 'id');
+$formeGeometries = archicad_catalogue_forme_geometries();
+$formeGeoLabels = array_column($formeGeometries, 'nom', 'id');
+$formeById = array_column($formes, null, 'id');
 $murNames = array_column($murs, 'nom', 'id');
 $plancherNames = array_column($planchers, 'nom', 'id');
 $facadeNames = array_column($facades, 'nom', 'id');
@@ -660,7 +681,7 @@ include __DIR__ . '/../includes/admin-head.php';
     <?php elseif ($section === 'modules'): ?>
     <div class="admin-card">
       <h2>Modules (<?= count($modules) ?>) <?= cat_btn_add('configurateur.php?section=modules&new=1', 'Ajouter un module') ?></h2>
-      <p class="admin-hint">Le client choisit un modèle dans ce catalogue (onglet « Module » du configurateur) : longueur, largeur, hauteur sous plafond, forme de toiture (pente, pignon) <strong>et éléments d'enveloppe liés (mur, plancher, toiture)</strong> sont définis par le modèle — le client ne peut pas les modifier, ils lui sont présentés en lecture seule. La surface extérieure est celle du mur choisi.</p>
+      <p class="admin-hint">Le client choisit un modèle dans ce catalogue (onglet « Module » du configurateur) : longueur, largeur, hauteur sous plafond, forme de toiture (géométrie, pentes) <strong>et éléments d'enveloppe liés (mur, plancher, toiture)</strong> sont définis par le modèle — le client ne peut pas les modifier, ils lui sont présentés en lecture seule. La surface extérieure est celle du mur choisi.</p>
       <?php if ($modules === []): ?>
         <p class="admin-hint">Aucun modèle de module dans le catalogue pour le moment.</p>
       <?php else: ?>
@@ -676,12 +697,12 @@ include __DIR__ . '/../includes/admin-head.php';
             </tr>
           </thead>
           <tbody>
-            <?php foreach ($modules as $mod): $ttype = $toitureTypeOf[$mod['toiture'] ?? ''] ?? ''; ?>
+            <?php foreach ($modules as $mod): $fo = $formeById[$mod['forme'] ?? ''] ?? null; ?>
               <tr>
                 <td><?= cat_thumb($mod) ?></td>
                 <td><strong><?= htmlspecialchars((string) $mod['nom']) ?></strong></td>
                 <td><?= cat_cm((float) $mod['longueur']) ?> × <?= cat_cm((float) $mod['largeur']) ?> — h <?= cat_cm((float) $mod['hauteur']) ?></td>
-                <td><?= htmlspecialchars($formeNames[$mod['forme'] ?? ''] ?? (string) ($mod['forme'] ?? '—')) ?><?= $ttype !== '' && $ttype !== 'terrasse' ? ' — pente ' . (int) ($mod['pente'] ?? 0) . '°' : '' ?><?= $ttype === 'deuxpentes' ? ((!empty($mod['pignon'])) ? ', pignon' : ', croupe') : '' ?></td>
+                <td><?= htmlspecialchars($formeNames[$mod['forme'] ?? ''] ?? (string) ($mod['forme'] ?? '—')) ?><?= $fo ? ' — ' . htmlspecialchars($formeGeoLabels[$fo['geometrie'] ?? ''] ?? (string) ($fo['geometrie'] ?? '')) . ' — ' . (($fo['geometrie'] ?? '') === 'deuxpentes' ? (int) ($fo['pente1'] ?? 0) . '° / ' . (int) ($fo['pente2'] ?? 0) . '°' : (int) ($fo['pente'] ?? 0) . '°') : '' ?></td>
                 <td><?= htmlspecialchars($toitureLabels[$mod['toiture'] ?? ''] ?? (string) ($mod['toiture'] ?? '')) ?></td>
                 <td class="admin-actions">
                   <?= cat_action_edit('configurateur.php?section=modules&edit=' . urlencode((string) $mod['id'])) ?>
@@ -733,10 +754,10 @@ include __DIR__ . '/../includes/admin-head.php';
         </div>
         <div class="modal-row">
           <div class="admin-form-row">
-            <label for="mod-forme">Forme de toiture (pente, pignon — onglet « Formes »)</label>
+            <label for="mod-forme">Forme de toiture (géométrie, pentes — onglet « Formes »)</label>
             <select id="mod-forme" name="forme">
               <?php foreach ($formes as $fo): ?>
-                <option value="<?= htmlspecialchars((string) $fo['id']) ?>"<?= (($editModule['forme'] ?? ($formes[0]['id'] ?? '')) === $fo['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $fo['nom']) ?> — pente <?= (int) ($fo['pente'] ?? 0) ?>°<?= !empty($fo['pignon']) ? ', pignon' : ', croupe' ?></option>
+                <option value="<?= htmlspecialchars((string) $fo['id']) ?>"<?= (($editModule['forme'] ?? ($formes[0]['id'] ?? '')) === $fo['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $fo['nom']) ?> — <?= htmlspecialchars($formeGeoLabels[$fo['geometrie'] ?? ''] ?? (string) ($fo['geometrie'] ?? '')) ?> — <?= ($fo['geometrie'] ?? '') === 'deuxpentes' ? (int) ($fo['pente1'] ?? 0) . '° / ' . (int) ($fo['pente2'] ?? 0) . '°' : (int) ($fo['pente'] ?? 0) . '°' ?></option>
               <?php endforeach; ?>
             </select>
           </div>
@@ -780,21 +801,21 @@ include __DIR__ . '/../includes/admin-head.php';
     <?php elseif ($section === 'formes'): ?>
     <div class="admin-card">
       <h2>Formes de toiture (<?= count($formes) ?>) <?= cat_btn_add('configurateur.php?section=formes&new=1', 'Ajouter une forme') ?></h2>
-      <p class="admin-hint">Formes de toiture proposées dans les modules : la pente et la présence d'un pignon (toiture deux pentes, sinon croupe) sont définies ici, puis référencées par chaque module. Le visuel est affiché dans le configurateur.</p>
+      <p class="admin-hint">Formes de toiture proposées dans les modules : la géométrie (monopente, deux pentes = pignon, quatre pentes = croupe) et la pente de chaque versant sont définies ici, puis référencées par chaque module. Le visuel est affiché dans le configurateur.</p>
       <?php if ($formes === []): ?>
         <p class="admin-hint">Aucune forme de toiture dans le catalogue pour le moment.</p>
       <?php else: ?>
         <table class="admin-table">
           <thead>
-            <tr><th>Visuel</th><th>Nom</th><th>Pente</th><th>Pignon</th><th>Actions</th></tr>
+            <tr><th>Visuel</th><th>Nom</th><th>Géométrie</th><th>Pente(s)</th><th>Actions</th></tr>
           </thead>
           <tbody>
             <?php foreach ($formes as $fo): ?>
               <tr>
                 <td><?= cat_thumb($fo) ?></td>
                 <td><strong><?= htmlspecialchars((string) $fo['nom']) ?></strong></td>
-                <td><?= (int) ($fo['pente'] ?? 0) ?>°</td>
-                <td><?= !empty($fo['pignon']) ? 'Oui' : 'Non (croupe)' ?></td>
+                <td><?= htmlspecialchars($formeGeoLabels[$fo['geometrie'] ?? ''] ?? (string) ($fo['geometrie'] ?? '')) ?></td>
+                <td><?= ($fo['geometrie'] ?? '') === 'deuxpentes' ? (int) ($fo['pente1'] ?? 0) . '° / ' . (int) ($fo['pente2'] ?? 0) . '° (par versant)' : (int) ($fo['pente'] ?? 0) . '°' ?></td>
                 <td class="admin-actions">
                   <?= cat_action_edit('configurateur.php?section=formes&edit=' . urlencode((string) $fo['id'])) ?>
                   <?= cat_action_delete('configurateur.php?section=formes', $csrf, 'delete_forme', (string) $fo['id'], 'Supprimer cette forme de toiture du catalogue ?') ?>
@@ -831,13 +852,44 @@ include __DIR__ . '/../includes/admin-head.php';
         <hr class="admin-sep">
         <div class="modal-row">
           <div class="admin-form-row">
-            <label for="fo-pente">Pente (°)</label>
-            <input type="number" id="fo-pente" name="pente" step="1" min="0" max="90" required value="<?= htmlspecialchars((string) ($editForme['pente'] ?? '30')) ?>">
-          </div>
-          <div class="admin-form-row admin-form-check">
-            <label><input type="checkbox" name="pignon" value="1"<?= !isset($editForme) || !empty($editForme['pignon']) ? ' checked' : '' ?>> Pignon sur les petits côtés (toiture deux pentes, sinon croupe)</label>
+            <label for="fo-geometrie">Géométrie</label>
+            <select id="fo-geometrie" name="geometrie">
+              <?php foreach ($formeGeometries as $g): ?>
+                <option value="<?= htmlspecialchars((string) $g['id']) ?>"<?= (($editForme['geometrie'] ?? 'monopente') === $g['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $g['nom']) ?></option>
+              <?php endforeach; ?>
+            </select>
           </div>
         </div>
+        <div class="modal-row" id="fo-row-pente">
+          <div class="admin-form-row">
+            <label for="fo-pente">Pente (°) — monopente / quatre pentes</label>
+            <input type="number" id="fo-pente" name="pente" step="1" min="0" max="90" required value="<?= htmlspecialchars((string) ($editForme['pente'] ?? '30')) ?>">
+          </div>
+        </div>
+        <div class="modal-row" id="fo-row-pentes">
+          <div class="admin-form-row">
+            <label for="fo-pente1">Pente versant 1 (°)</label>
+            <input type="number" id="fo-pente1" name="pente1" step="1" min="1" max="90" value="<?= htmlspecialchars((string) ($editForme['pente1'] ?? $editForme['pente'] ?? '30')) ?>">
+          </div>
+          <div class="admin-form-row">
+            <label for="fo-pente2">Pente versant 2 (°)</label>
+            <input type="number" id="fo-pente2" name="pente2" step="1" min="1" max="90" value="<?= htmlspecialchars((string) ($editForme['pente2'] ?? $editForme['pente'] ?? '30')) ?>">
+          </div>
+        </div>
+        <script>
+        (function () {
+          var sel = document.getElementById('fo-geometrie');
+          if (!sel) return;
+          var toggle = function () {
+            var deux = sel.value === 'deuxpentes';
+            document.getElementById('fo-row-pente').style.display = deux ? 'none' : '';
+            document.getElementById('fo-row-pentes').style.display = deux ? '' : 'none';
+            document.getElementById('fo-pente').required = !deux;
+          };
+          sel.addEventListener('change', toggle);
+          toggle();
+        })();
+        </script>
         <div class="admin-actions">
           <button type="submit" class="btn btn-cta">Enregistrer</button>
           <a href="configurateur.php?section=formes" class="btn btn-secondary">Annuler</a>
